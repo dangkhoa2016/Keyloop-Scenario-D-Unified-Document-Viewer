@@ -11,6 +11,7 @@ import {DEMO_VINS} from '../../../scripts/fixture-data.js';
 import {adaptSales,adaptService} from './adapters/source-adapters.js';
 import {requestSource,type TimelineEvent} from './clients/upstream.js';
 import {persistAudit} from './persistence/audit.js';
+import {renderEvidencePage} from './reviewer/evidence-page.js';
 export interface UnifiedOptions{salesBaseUrl:string;serviceBaseUrl:string;timeoutMs?:number;auditDb:Database.Database;testFaults?:{sales?:string;service?:string};onTrace?:(trace:{requestId:string;events:TimelineEvent[];overlapMs:number;totalDurationMs:number})=>void}
 export function createUnifiedApp(config:UnifiedOptions){
  const app=new Hono();
@@ -18,16 +19,13 @@ export function createUnifiedApp(config:UnifiedOptions){
  type CapturedEvidence={requestId:string;vin:string;recordedAt:string;sales:unknown;service:unknown;unified:unknown;overlapMs:number};
  const captures=new Map<string,CapturedEvidence>();
  const putCapture=(e:CapturedEvidence)=>{if(!reviewerEnabled)return;captures.set(e.requestId,e);while(captures.size>30){const first=captures.keys().next().value;if(first)captures.delete(first);else break;}};
- const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]??char));
- const jsonText=(value:unknown)=>escapeHtml(JSON.stringify(value,null,2)??'null');
  if(reviewerEnabled){
   app.get('/reviewer/requests/:requestId',c=>{
    const id=c.req.param('requestId');
    if(!/^req_[0-9a-f-]{36}$/.test(id))return c.text('Not found',404);
    const item=captures.get(id);
    if(!item)return c.text('Evidence expired or request was not captured in this running session',404);
-   const section=(label:string,value:unknown)=>'<section><h2>'+escapeHtml(label)+'</h2><pre>'+jsonText(value)+'</pre></section>';
-   const html='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Request evidence '+escapeHtml(id)+'</title><style>body{font:15px system-ui;background:#0d1726;color:#eef4ff;max-width:1200px;margin:30px auto;padding:0 18px}h1{font-size:1.7rem}h2{font-size:1.1rem}p{color:#adc3d7}pre{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:#16283e;padding:18px;border:1px solid #37506a;border-radius:10px}section{margin:24px 0}a{color:#87c9ff}</style></head><body><h1>Captured request / response evidence</h1><p>Same request ID: <strong>'+escapeHtml(id)+'</strong> · VIN '+escapeHtml(item.vin)+' · HTTP overlap '+item.overlapMs.toFixed(3)+' ms</p><p>Captured in memory at '+escapeHtml(item.recordedAt)+'. Synthetic demo only; no replay or additional VIN lookup. Old requests and restarted processes are not available.</p>'+section('Sales API — original HTTP response',item.sales)+section('Service API — original HTTP response',item.service)+section('Unified API — actual response',item.unified)+'</body></html>';
+   const html=renderEvidencePage(item);
    return c.html(html,200,{'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",'X-Robots-Tag':'noindex, nofollow'});
   });
  }
