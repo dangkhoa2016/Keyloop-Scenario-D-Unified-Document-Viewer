@@ -272,7 +272,7 @@ print('='*60)""")
 assert len(cells)==18,len(cells)
 # Add self-contained reviewer guidance before every executable step.
 guides = [
-('Start here: Kaggle setup','Sign in to Kaggle, import this notebook from GitHub, choose a CPU session and turn Internet ON. Click Run All. No credentials, GitHub URL, SHA or manual configuration are required. The next cell creates a unique run directory. Expected: RUN_ID and PINNED_PUBLIC_GIT.'),
+('Start here: Kaggle setup','Sign in to Kaggle, create New Notebook, then File → Import Notebook → Link and paste the full GitHub notebook file URL shown above (not the repository homepage). Alternatively use the GitHub tab to select the repository and file; file download/upload is the fallback. Choose CPU and Internet ON. Click Run All. No credentials, GitHub URL, SHA or manual configuration are required. The next cell creates a unique run directory. Expected: RUN_ID and PINNED_PUBLIC_GIT.'),
 ('Fetch public source','The notebook clones the public GitHub repository, resolves main to an immutable SHA, and checks it out. The printed SHA identifies the tested revision. Expected: SOURCE_REPRODUCIBILITY=PASS. If cloning fails, check Kaggle Internet access.'),
 ('Install Node.js dependencies','This Python notebook runs a Node.js/TypeScript backend. The cell uses Node.js 24, installing a verified official binary if needed, and runs npm ci using the lockfile. Expected: Node v24 and NPM_CI=PASS; your computer needs no local setup.'),
 ('Validate the source code','Typecheck checks TypeScript correctness, lint identifies common bugs, and build compiles the backend. Expected: TYPECHECK=PASS, LINT=PASS and BUILD=PASS. Any failure stops execution rather than falsely reporting success.'),
@@ -295,7 +295,13 @@ import nbformat
 old_code=cells[1:]
 intro=nbformat.v4.new_markdown_cell('''# Unified Document Viewer — Guided Kaggle Review
 
-**New to Kaggle?** Sign up or sign in at [Kaggle](https://www.kaggle.com/), download the notebook from [GitHub](https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release/blob/main/notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb), and upload the .ipynb file into a new Kaggle Notebook. Select **CPU** as accelerator, enable **Internet** in notebook settings, and choose **Run All**.
+**New to Kaggle? Import the notebook directly from GitHub:** sign in at [Kaggle](https://www.kaggle.com/code), select **New Notebook → File → Import Notebook → Link**, and paste the following *file URL* (not the repository homepage):
+
+```text
+https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release/blob/main/notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb
+```
+
+Select **Import**. If Kaggle provides a **GitHub** tab instead, select repository `dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release` and `notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`. **Fallback:** use GitHub **Raw** to download the .ipynb and upload it via the import menu. Confirm **35 cells**. Then select **CPU** as accelerator, enable **Internet** in notebook settings, and choose **Run All**.
 
 No GitHub PAT, repository URL, SHA, Docker, or Google Drive is required. Each Markdown section explains the code cell beneath it. For a live interaction, follow Step 16 to open the temporary browser URL and test the VIN search and source filters. All sample records are synthetic.
 
