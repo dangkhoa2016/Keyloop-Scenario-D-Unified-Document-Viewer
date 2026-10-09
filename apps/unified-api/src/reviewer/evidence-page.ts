@@ -1,5 +1,6 @@
 type SourceCapture={httpStatus?:number;body?:unknown;summary?:{status?:string;documentCount?:number;durationMs?:number}};
-export type EvidencePageData={requestId:string;vin:string;recordedAt:string;sales:unknown;service:unknown;unified:unknown;overlapMs:number};
+export type TimingEvent={source:'SALES'|'SERVICE';event:'started'|'completed';offsetMs:number};
+export type EvidencePageData={requestId:string;vin:string;recordedAt:string;sales:unknown;service:unknown;unified:unknown;overlapMs:number;events?:TimingEvent[]};
 const safe=(v:unknown)=>String(v??'—').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]??ch));
 const obj=(v:unknown):Record<string,unknown>=>typeof v==='object'&&v!==null&&!Array.isArray(v)?v as Record<string,unknown>:{};
 const finite=(v:unknown)=>typeof v==='number'&&Number.isFinite(v)?v:null;
@@ -13,6 +14,74 @@ function sourceCard(label:string,raw:unknown){
  const count=sm.documentCount;
  return '<article class="source"><div class="source-head"><h3>'+safe(label)+'</h3><span class="chip">'+safe(status)+'</span></div><div class="source-stats"><div><span>Documents</span><strong>'+n(count)+'</strong></div><div><span>HTTP response</span><strong>'+n(x.httpStatus)+'</strong></div><div><span>Duration</span><strong>'+ms(sm.durationMs)+'</strong></div></div><p class="source-note">'+(status==='EMPTY'?'Vehicle found; this source has no documents.':status==='NOT_FOUND'?'Vehicle not found in this source.':status==='SUCCESS'?'Documents returned successfully.':'Review source status and technical details below.')+'</p></article>';
 }
+
+type Interval={start:number;end:number;duration:number};
+const fmt=(v:number)=>v.toFixed(2);
+function measuredIntervals(e:EvidencePageData):{sales:Interval;service:Interval;total:number;overlap:number}|null{
+ if(!Array.isArray(e.events)||e.events.length!==4)return null;
+ const read=(source:'SALES'|'SERVICE'):Interval|null=>{
+  const started=e.events!.filter(x=>x.source===source&&x.event==='started');
+  const completed=e.events!.filter(x=>x.source===source&&x.event==='completed');
+  if(started.length!==1||completed.length!==1)return null;
+  const a=started[0]!.offsetMs,b=completed[0]!.offsetMs;
+  if(!Number.isFinite(a)||!Number.isFinite(b)||a<0||b<a)return null;
+  return {start:a,end:b,duration:b-a};
+ };
+ const sales=read('SALES'),service=read('SERVICE');
+ if(!sales||!service)return null;
+ const unified=obj(e.unified),response=obj(unified.body);
+ const total=finite(response.totalDurationMs);
+ if(total===null||total<=0||total+0.1<Math.max(sales.end,service.end))return null;
+ const overlap=Math.max(0,Math.min(sales.end,service.end)-Math.max(sales.start,service.start));
+ if(!Number.isFinite(e.overlapMs)||Math.abs(overlap-e.overlapMs)>0.1)return null;
+ return {sales,service,total,overlap};
+}
+function timeline(e:EvidencePageData):string{
+ const intervals=measuredIntervals(e);
+ if(!intervals)return '<section class="panel timeline" aria-label="Request execution timeline"><h2>Request execution timeline</h2><p>Interval events are unavailable or inconsistent for this request. No chart was inferred from durations.</p></section>';
+ const {sales,service,total,overlap}=intervals;
+ const x0=146,width=808,max=Math.max(1,total,sales.end,service.end);
+ const x=(t:number)=>x0+t/max*width;
+ const overlapBegin=Math.max(sales.start,service.start),overlapEnd=Math.min(sales.end,service.end);
+ const bar=(label:string,a:Interval,y:number,fill:string)=>{
+  const left=x(a.start),barWidth=Math.max(0,x(a.end)-left);
+  return '<text class="axis-label" x="12" y="'+(y+18)+'">'+label+'</text>'+
+    '<rect x="'+fmt(left)+'" y="'+y+'" width="'+fmt(barWidth)+'" height="25" rx="5" fill="'+fill+'"/>'+
+    '<text class="axis-value" x="975" y="'+(y+18)+'">'+fmt(a.duration)+' ms</text>';
+ };
+ const grid=[0,1,2,3,4].map(i=>{
+  const tx=x0+(width*i/4);
+  return '<line x1="'+fmt(tx)+'" x2="'+fmt(tx)+'" y1="43" y2="219" stroke="#496077" stroke-width="1" stroke-dasharray="3 6"/>'+
+   '<text class="tick-label" x="'+fmt(tx)+'" y="242" text-anchor="middle">'+fmt(max*i/4)+' ms</text>';
+ }).join('');
+ const overlapWidth=Math.max(0,x(overlapEnd)-x(overlapBegin));
+ const overlapLine=overlap>0?
+  '<rect x="'+fmt(x(overlapBegin))+'" y="176" width="'+fmt(overlapWidth)+'" height="15" rx="3" fill="#b99aff" />':
+  '';
+ const overlapLabel=overlap>0?'Overlap verified: '+fmt(overlap)+' ms':'No measured interval overlap';
+ const overlapDescription=overlap>0?'Sales and Service HTTP requests were in flight at the same time.':'These two HTTP intervals did not overlap.';
+ return '<section class="panel timeline" aria-label="Request execution timeline">'+
+  '<div class="heading"><h2>Request execution timeline</h2><span class="chip '+(overlap>0?'good':'neutral')+'">'+safe(overlapLabel)+'</span></div>'+
+  '<p>Measured offsets from the start of Unified processing. The chart is generated from the four recorded HTTP start/end events of this exact request.</p>'+
+  '<div class="timeline-scroll"><svg class="timeline-svg" viewBox="0 0 1100 267" role="img" aria-labelledby="timeline-title timeline-desc" xmlns="http://www.w3.org/2000/svg">'+
+  '<title id="timeline-title">Sales and Service concurrent HTTP timeline</title>'+
+  '<desc id="timeline-desc">Unified '+fmt(total)+' milliseconds. Sales starts at '+fmt(sales.start)+' and ends at '+fmt(sales.end)+' milliseconds. Service starts at '+fmt(service.start)+' and ends at '+fmt(service.end)+' milliseconds. '+overlapDescription+' Overlap '+fmt(overlap)+' milliseconds.</desc>'+
+  grid+
+  '<text class="axis-label" x="12" y="79">Unified</text><rect x="'+x0+'" y="61" width="'+fmt(x(total)-x0)+'" height="25" rx="5" fill="#899ec3"/>'+
+  '<text class="axis-value" x="975" y="79">'+fmt(total)+' ms</text>'+
+  bar('Sales HTTP',sales,104,'#58a8ff')+bar('Service HTTP',service,147,'#40d6ae')+
+  '<text class="axis-label" x="12" y="188">Shared interval</text>'+overlapLine+
+  '<text class="axis-value" x="975" y="188">'+fmt(overlap)+' ms</text>'+
+  '<text x="146" y="26" fill="#bfd5e8" font-size="13">0 ms = Unified request processing start</text>'+
+  '<text x="954" y="262" fill="#b4c6d8" font-size="12" text-anchor="end">Elapsed time →</text></svg></div>'+
+  '<table class="timing-table"><caption>Measured HTTP intervals, relative to Unified start</caption><thead><tr><th scope="col">Activity</th><th scope="col">Started</th><th scope="col">Completed</th><th scope="col">Duration</th></tr></thead><tbody>'+
+  '<tr><th scope="row">Unified</th><td>0.00 ms</td><td>'+fmt(total)+' ms</td><td>'+fmt(total)+' ms</td></tr>'+
+  '<tr><th scope="row">Sales HTTP</th><td>'+fmt(sales.start)+' ms</td><td>'+fmt(sales.end)+' ms</td><td>'+fmt(sales.duration)+' ms</td></tr>'+
+  '<tr><th scope="row">Service HTTP</th><td>'+fmt(service.start)+' ms</td><td>'+fmt(service.end)+' ms</td><td>'+fmt(service.duration)+' ms</td></tr></tbody></table>'+
+  '<p class="meta"><strong>What this proves:</strong> '+safe(overlapDescription)+' HTTP overlap measures concurrent outstanding HTTP operations, not simultaneous CPU instruction execution. Offsets are monotonic durations, not UTC timestamps. The capture timestamp above is a separate wall-clock event.</p>'+
+  '</section>';
+}
+
 export function renderEvidencePage(e:EvidencePageData):string{
  const unified=obj(e.unified);
  const result=obj(unified.body);
@@ -39,7 +108,8 @@ export function renderEvidencePage(e:EvidencePageData):string{
  '<p class="meta">Request ID: <code>'+safe(e.requestId)+'</code><br>Captured at: '+safe(e.recordedAt)+'</p>'+
  (Object.keys(error).length?'<p role="status">Response: '+safe(error.code)+' — '+safe(error.message)+'</p>':'')+
  '<p class="jump"><a href="#sales">Sales JSON</a><a href="#service">Service JSON</a><a href="#unified">Unified JSON</a></p></section>'+
- '<p>Parallel overlap shows concurrently active outbound HTTP intervals, not parallel CPU execution. This page is a synthetic demonstration, not a historical replay or a new lookup.</p>'+
+ timeline(e)+
+ '<p>Original JSON captures for this synthetic demonstration; no additional lookup or replay occurs when opening this page.</p>'+
  block('sales','Sales API — original HTTP response',e.sales)+block('service','Service API — original HTTP response',e.service)+block('unified','Unified API — actual response',e.unified)+
  '<p class="meta">Evidence is held in memory for a limited number of requests and expires on server restart.</p></main></body></html>';
 }

@@ -16,7 +16,7 @@ export interface UnifiedOptions{salesBaseUrl:string;serviceBaseUrl:string;timeou
 export function createUnifiedApp(config:UnifiedOptions){
  const app=new Hono();
  const reviewerEnabled=process.env.REVIEWER_PUBLIC_EVIDENCE==='1' && process.env.NODE_ENV!=='production';
- type CapturedEvidence={requestId:string;vin:string;recordedAt:string;sales:unknown;service:unknown;unified:unknown;overlapMs:number};
+ type CapturedEvidence={requestId:string;vin:string;recordedAt:string;sales:unknown;service:unknown;unified:unknown;overlapMs:number;events:TimelineEvent[]};
  const captures=new Map<string,CapturedEvidence>();
  const putCapture=(e:CapturedEvidence)=>{if(!reviewerEnabled)return;captures.set(e.requestId,e);while(captures.size>30){const first=captures.keys().next().value;if(first)captures.delete(first);else break;}};
  if(reviewerEnabled){
@@ -67,13 +67,13 @@ export function createUnifiedApp(config:UnifiedOptions){
   console.log(JSON.stringify({timestamp:new Date().toISOString(),service:'unified',event:'aggregation_completed',requestId,vin,status:decision.httpStatus,salesStatus:sources.sales.status,serviceStatus:sources.service.status,documentCount:documents.length,partial:decision.partial,overlapMs,auditPersisted}));
   if(decision.errorCode){const message=decision.httpStatus===404?'No vehicle was found for the supplied VIN.':'Both source systems are unavailable.';
    const body={requestId,vin,error:{code:decision.errorCode,message},sources,totalDurationMs};
-   putCapture({requestId,vin,recordedAt:new Date().toISOString(),sales:{httpStatus:sales.capturedHttpStatus,body:sales.capturedResponse??null,summary:sales.summary},service:{httpStatus:service.capturedHttpStatus,body:service.capturedResponse??null,summary:service.summary},unified:{httpStatus:decision.httpStatus,body},overlapMs});
+   putCapture({requestId,vin,recordedAt:new Date().toISOString(),sales:{httpStatus:sales.capturedHttpStatus,body:sales.capturedResponse??null,summary:sales.summary},service:{httpStatus:service.capturedHttpStatus,body:service.capturedResponse??null,summary:service.summary},unified:{httpStatus:decision.httpStatus,body},overlapMs,events:events.map(e=>({...e}))});
    return c.json(body,decision.httpStatus===404?404:503);
   }
   const result={requestId,vin,partial:decision.partial,vehicle,sources,documents,documentCount:documents.length,warnings,auditPersisted,totalDurationMs};
   const validation=UnifiedSchema.safeParse(result);
   if(!validation.success){console.error(JSON.stringify({event:'unified_contract_error',requestId}));return c.json({requestId,error:{code:'INTERNAL_ERROR',message:'Unable to complete document search.'}},500);}
-  putCapture({requestId,vin,recordedAt:new Date().toISOString(),sales:{httpStatus:sales.capturedHttpStatus,body:sales.capturedResponse??null,summary:sales.summary},service:{httpStatus:service.capturedHttpStatus,body:service.capturedResponse??null,summary:service.summary},unified:{httpStatus:200,body:validation.data},overlapMs});
+  putCapture({requestId,vin,recordedAt:new Date().toISOString(),sales:{httpStatus:sales.capturedHttpStatus,body:sales.capturedResponse??null,summary:sales.summary},service:{httpStatus:service.capturedHttpStatus,body:service.capturedResponse??null,summary:service.summary},unified:{httpStatus:200,body:validation.data},overlapMs,events:events.map(e=>({...e}))});
   return c.json(validation.data,200);
  });
  return app;

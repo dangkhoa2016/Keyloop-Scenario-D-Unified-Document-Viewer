@@ -61,3 +61,7 @@ In Kaggle reviewer mode only, the notebook enables `REVIEWER_PUBLIC_EVIDENCE=1` 
 ### Readable request evidence summary
 
 The same-request `/reviewer/requests/<requestId>` page now opens with a responsive **Request overview** section showing vehicle identity, HTTP outcome, total document count, Sales/Service breakdown, actual source durations, measured HTTP overlap, and the SQLite audit persistence field recorded in the response. Below it, expandable technical sections preserve the original captured Sales, Service and Unified JSON payloads. Error/empty/partial states are derived from the actual response rather than presumed successful. Captures remain ephemeral and synthetic-only.
+
+### Measured request execution chart
+
+The evidence page includes a responsive SVG timeline of Unified, Sales HTTP, and Service HTTP intervals using the four monotonic start/end events from the **same request ID**. It highlights measured overlap and provides an accessible textual description and timing table. Missing or inconsistent events are indicated explicitly; no values are invented. This represents outbound HTTP overlap, not CPU parallelism or browser-to-Cloudflare latency.
