@@ -1,6 +1,8 @@
 # System Design — Scenario D: Unified Document Viewer
 
-**Implementation status (2026-10-09):** Foundation–Reviewer UI implemented, automated verification completed historically; Reviewer evidence notebook and evidence pipeline implemented, final Kaggle browser/import/submission acceptance outstanding. This describes the **actual implementation**, not only the original design intent.
+**Reviewer summary.** This file is a concise as-built view of the current implementation, not a separate design authority. The canonical public system-design specification is [`../Keyloop-Scenario-D-Unified-Document-Viewer-System-Design.md`](../Keyloop-Scenario-D-Unified-Document-Viewer-System-Design.md).
+
+**Implementation status (2026-10-09):** The documented implementation is complete and locally verified with 27 Node/Vitest tests and 7 Python evidence tests. Code, OpenAPI and executable tests are used to verify the implementation described by the canonical specification.
 
 ## Objective and topology
 
@@ -14,17 +16,21 @@ flowchart TD
   S --> SD[(sales.sqlite)]
   V --> VD[(service.sqlite)]
   U --> AD[(unified-audit.sqlite)]
+  S -. correlated lifecycle events .-> AD
+  V -. correlated lifecycle events .-> AD
 ```
 
 All application listeners bind loopback `127.0.0.1`. Only Unified :3000 is tunnel-eligible; source endpoints and test fault controls remain private. Each source has its own raw schema; Zod adapters normalize to common document and vehicle contracts. No distributed transaction spans the two sources.
 
 ## Request and concurrency sequence
 
+Canonical business route: `GET /api/vehicles/:vin/documents`. Sales and Service expose the same route shape but deliberately return different raw JSON schemas.
+
 1. Validate and uppercase VIN (17 characters, excluding I/O/Q); reject malformed input with HTTP 400.
 2. Start Sales and Service outbound HTTP requests together using `Promise.all`. Both calls have independent timeout/error classification, including non-2xx HTTP, network refusal, invalid JSON and Zod schema violations.
 3. Normalize source records, namespace document IDs with `SALES:` and `SERVICE:`, reconcile vehicle metadata, and deterministically sort by date descending and tie-break fields.
-4. Persist nonblocking audit entry in `unified-audit.sqlite`, recording request ID, VIN, source outcomes/counts/timings, aggregate timing and partial status. Audit failures are surfaced, and readiness becomes degraded.
-5. Return one response with documents, per-source status summaries, warning messages, partial flag and matching request ID.
+4. Persist the request-level audit row plus append-only correlated lifecycle events in `unified-audit.sqlite`. Sales and Service record actual receipt/response events; Unified records browser receipt, fan-out start, upstream response receipt, aggregation and browser response. Audit failure never suppresses the business result, while readiness reflects request-audit degradation.
+5. Return one response with documents, per-source status summaries, warning messages, partial flag and matching request ID. Reviewer automation can fetch the same request via `GET /api/observability/requests/:requestId` without querying SQLite or parsing log files.
 
 ```mermaid
 sequenceDiagram
@@ -35,13 +41,15 @@ sequenceDiagram
   participant A as SQLite audit
   R->>U: GET /api/vehicles/{vin}/documents
   par Both HTTP calls initiated concurrently
-    U->>S: Sales source query
+    U->>S: Sales source query + propagated request ID
+    S->>A: Best-effort Sales lifecycle events
     S-->>U: Sales documents/status
   and
-    U->>V: Service source query
+    U->>V: Service source query + propagated request ID
+    V->>A: Best-effort Service lifecycle events
     V-->>U: Service documents/status
   end
-  U->>A: Best-effort request audit
+  U->>A: Best-effort request audit + Unified lifecycle events
   U-->>R: Merged documents and source summaries
 ```
 
@@ -65,13 +73,13 @@ Sales and Service use deliberately **different mocked data models** and independ
 
 ## Evidence and verification limitations
 
-The private monotonic trace stores started/completed events for both HTTP intervals; reviewer evidence independently computes positive overlap, checks document counts and correlates the **same fresh requestId** across Sales, Service and Unified JSONL logs, trace JSON and SQLite audit. The notebook renders a timing PNG and retains run-scoped evidence. **Positive overlap demonstrates concurrently outstanding HTTP requests, not simultaneous CPU database instructions.** Earlier executions passed 26 Node and 7 Python evidence tests; current source edits require revalidation.
+The authoritative durable reviewer evidence is persisted in `unified-audit.sqlite` and exported through `GET /api/observability/requests/:requestId`. That DB-backed report verifies the correlated lifecycle, source receipt/response capture, fan-out ordering and final aggregation for the **same fresh requestId**. Separately, the bounded private reviewer trace records monotonic start/end intervals and the human-readable reviewer page computes the positive HTTP overlap used for measured concurrency evidence. The notebook renders a timing PNG and retains run-scoped evidence. Its bounded Step 18 live monitor may tail private runtime logs and cross-check SQLite to surface newly generated browser requests; those logs are supplementary diagnostics rather than the authoritative evidence contract. **Positive overlap demonstrates concurrently outstanding HTTP requests, not simultaneous CPU database instructions.** The current source passes 27 Node tests and 7 Python evidence tests, including a real-HTTP request that verifies the complete persisted lifecycle and machine-readable evidence export.
 
 ## Technology and architectural tradeoffs
 
 - **Node.js 24 / TypeScript / Hono:** small explicit independent HTTP boundaries; **Zod:** validation of runtime data from mocked sources.
 - **SQLite:** persistent and easy for Kaggle reproducibility, but not a shared highly available horizontally scalable datastore.
-- **Vanilla HTML/CSS/JS UI:** deliberate Reviewer UI scope simplification instead of planned Vue/Tailwind; no CDN install required, single consolidated list with All/Sales/Service filters, source attribution, error and loading states.
+- **Vanilla HTML/CSS/JS UI:** no framework, CDN dependency or frontend build pipeline; provides a single consolidated list with All/Sales/Service filters, source attribution, error and loading states.
 - **Cloudflare Quick Tunnel:** optional temporary reviewer access; not production hosting, permanent DNS or authentication.
 - No real dealership integrations, tenant isolation, production auth, binary PDF renderer, high availability or OpenTelemetry deployment is claimed.
 

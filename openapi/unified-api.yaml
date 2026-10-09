@@ -39,6 +39,22 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResult'}
+  /api/observability/requests/{requestId}:
+    get:
+      summary: Export persisted correlated request lifecycle evidence
+      operationId: getRequestEvidence
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Chronological request events with derived summary and verification checks.
+          content:
+            application/json:
+              schema: {type: object}
+        '404': {description: No persisted evidence exists for the request ID.}
   /api/demo-vins:
     get:
       summary: Synthetic reviewer VIN examples
