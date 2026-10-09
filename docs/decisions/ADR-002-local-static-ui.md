@@ -1,11 +1,17 @@
-# ADR-002 — Local static reviewer interface, no JavaScript framework dependency
+# ADR-002 — Local static reviewer interface
 
-**Status:** Adopted for Reviewer UI with deviation from the revised implementation plan.
+**Status:** Accepted
 
-The planning baseline proposed Vue 3 and Tailwind CSS without a frontend build, initially via pinned CDN assets. The implementation uses versioned local vanilla JavaScript and CSS instead. This is a deliberate project-level scope change, **not a Keyloop requirement change**.
+## Context
 
-**Reason:** Scenario D explicitly evaluates a single combined document list and fully implemented backend layer. Local assets remove CDN/network failures from the reviewer path, avoid an additional frontend toolchain, and keep the user interface inspectable for the small state model. The UI is not being presented as a full Vue application.
+The browser interface exists to demonstrate a single VIN search, consolidated Sales/Service document metadata, source attribution and reviewer-visible states. The initial project plan considered Vue 3 and Tailwind CSS, but the final interface has a small state model and must remain reliable in temporary reviewer environments.
 
-**Cost:** UI behavior is manually coded, so larger user experiences would benefit from Vue's component architecture. If project complexity increases, return to pinned Vue and a build step rather than adding unpinned runtime CDN scripts.
+## Decision
 
-**Evidence:** Reviewer UI HTML/JS smoke tests and manual browser accessibility checks (pending human validation).
+Serve versioned local HTML, CSS and vanilla JavaScript directly from Unified. Do not require a frontend framework, runtime CDN dependency or separate frontend build pipeline for the assessment UI. This is a project implementation choice, not a change to the Keyloop scenario requirements.
+
+## Consequences
+
+- Reviewer execution has fewer external dependencies and a smaller failure surface.
+- The frontend remains straightforward to inspect alongside the backend implementation.
+- UI behavior is manually structured rather than componentized; a larger production interface would justify a framework and dedicated frontend toolchain.

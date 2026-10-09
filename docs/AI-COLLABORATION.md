@@ -1,19 +1,24 @@
-# AI Collaboration Evidence
+# AI Collaboration Narrative
 
-GenAI-assisted work covered the architecture, source-system contracts, deterministic data lifecycle, concurrent aggregation, failure policy, reviewer UI, Kaggle reproducibility, same-request evidence presentation, and persisted lifecycle observability. Release claims are accepted only after compiler, lint, automated-test, and runtime evidence gates; assistant-generated PASS text is never treated as proof by itself.
+Generative AI was used as an engineering assistant during architecture exploration, contract design, implementation scaffolding, test design, debugging, documentation and reviewer-evidence planning. The project does not treat model-generated text or PASS statements as proof of correctness.
 
-## Reviewed corrections and design evolution
+## Human ownership and verification
 
-- Source APIs: the Hono server return type was wider than the initial Node HTTP assumption; the implementation moved to `ReturnType<typeof serve>` and then passed typecheck/build/tests.
-- Unified aggregation: TypeScript exposed `never[]`, HTTP status overload, and lint issues; explicit typing and contract validation resolved them before the change was accepted.
-- Reviewer UI: static-route metadata and URL handling required stricter types. The original Vue/Tailwind plan was intentionally simplified to local HTML/CSS/JS to remove CDN/build-chain risk from the reviewer flow.
-- Reviewer evidence: real Kaggle reruns exposed port collisions. The notebook evolved to collision-safe automatic port-group selection without terminating unrelated processes, then added live browser-request monitoring, same-request captured upstream responses, readable evidence cards, and a measured SVG HTTP-overlap timeline.
-- Persisted lifecycle evidence was added test-first after comparing the frozen implementation with a separate reference implementation. The new RED test first observed HTTP 404 for the missing endpoint; after implementation it verifies all 11 lifecycle events, one request ID, derived checks, and final document count. The full gate now passes 27 Node tests and 7 Python evidence tests.
+The submitted architecture, source code and documentation remain human-owned. Material changes were reviewed against the repository itself and verified through the appropriate combination of TypeScript typechecking, ESLint, production builds, automated tests, real loopback HTTP integration, deterministic SQLite fixtures and reviewer-evidence checks.
 
-## Verification discipline
+Runtime claims are intentionally narrower than the measurements that support them. For example, concurrency is demonstrated through overlapping outbound HTTP intervals; this is not described as simultaneous CPU execution. Temporary Cloudflare URLs are treated as demo transport rather than durable deployment infrastructure.
 
-The project uses real loopback HTTP boundaries in integration tests, temporary SQLite databases for automated tests, deterministic Faker fixtures, Zod validation for upstream payloads, and independent Python evidence verification. Concurrency claims use monotonic outbound start/end offsets and positive overlap; they do not claim simultaneous CPU execution. Request-event persistence is best-effort and does not replace the original request-level audit, JSONL logs, private trace summaries, or bounded same-request response capture.
+## Design areas where AI assisted
 
-## Human-owned submission gates
+AI assistance was used to compare and refine several design choices, including:
 
-Human review remains authoritative for final accessibility acceptance, narrated video quality, public repository/tag publication, and any executed Kaggle notebook artifact chosen for submission. Temporary Cloudflare URLs are runtime conveniences, not durable submission links.
+- keeping Sales, Service and Unified as separate Hono HTTP processes rather than in-process source stubs;
+- validating two deliberately different upstream schemas before normalization;
+- defining partial-failure, timeout and unavailable-source semantics;
+- simplifying the demonstration UI to local HTML/CSS/JavaScript so reviewer execution does not depend on a frontend CDN or build chain;
+- designing persisted request lifecycle events and the request-ID evidence endpoint;
+- hardening the guided notebook and reviewer evidence so claims can be reproduced from observable runtime behavior.
+
+## Boundaries
+
+AI assistance did not replace executable verification, source review or human responsibility for the submission. The public documentation describes the final implementation and its tradeoffs rather than preserving internal prompt history, temporary development notes or superseded intermediate states.
