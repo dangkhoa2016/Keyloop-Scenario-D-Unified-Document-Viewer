@@ -2,20 +2,131 @@ openapi: 3.1.0
 info:
   title: Unified Document Viewer API
   version: 0.1.0
-  description: Foundation contract skeleton. Endpoint implementation pending Unified aggregation.
+  description: |
+    Actual unified metadata aggregation contract. Synthetic demo only; no PDF binary
+    rendering, real dealer integration or authenticated production service.
+servers:
+  - url: http://127.0.0.1:3000
 paths:
   /api/vehicles/{vin}/documents:
     get:
-      summary: Retrieve consolidated sales and service documents by VIN
+      summary: Consolidate Sales and Service document metadata by VIN
+      operationId: getUnifiedDocuments
       parameters:
         - name: vin
           in: path
           required: true
-          schema:
-            type: string
-            pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+          description: 17 uppercase or lowercase VIN characters (I/O/Q disallowed); normalized to uppercase.
+          schema: {type: string, pattern: '^[A-HJ-NPR-Za-hj-npr-z0-9]{17}$'}
       responses:
-        '200': { description: Combined documents; may be partial }
-        '400': { description: Invalid VIN }
-        '404': { description: VIN unknown to both healthy sources }
-        '503': { description: Both upstreams unavailable }
+        '200':
+          description: Full or partial aggregation, including an existing vehicle with zero documents.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UnifiedResult'}
+        '400':
+          description: Invalid VIN.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResult'}
+        '404':
+          description: Both healthy sources confirm the VIN is unknown.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResult'}
+        '503':
+          description: Both sources fail technically.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResult'}
+  /api/demo-vins:
+    get:
+      summary: Synthetic reviewer VIN examples
+      responses:
+        '200': {description: Public demo VIN catalogue}
+  /api/health/ready:
+    get:
+      summary: Unified readiness, including audit-store health
+      responses:
+        '200': {description: Ready}
+        '503': {description: Not ready or degraded}
+components:
+  schemas:
+    VIN:
+      type: string
+      pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+    Vehicle:
+      type: object
+      additionalProperties: false
+      required: [vin, make, model, year]
+      properties:
+        vin: {$ref: '#/components/schemas/VIN'}
+        make: {type: string, minLength: 1}
+        model: {type: string, minLength: 1}
+        year: {type: integer}
+    Document:
+      type: object
+      additionalProperties: false
+      required: [id, sourceDocumentId, source, type, title, date]
+      properties:
+        id: {type: string, minLength: 1, description: 'SOURCE:sourceDocumentId'}
+        sourceDocumentId: {type: string, minLength: 1}
+        source: {type: string, enum: [SALES, SERVICE]}
+        type: {type: string, minLength: 1}
+        title: {type: string, minLength: 1}
+        date: {type: string, pattern: '^\d{4}-\d{2}-\d{2}$'}
+    SourceSummary:
+      type: object
+      additionalProperties: false
+      required: [status, durationMs, documentCount, vehicleFound]
+      properties:
+        status: {type: string, enum: [SUCCESS, EMPTY, NOT_FOUND, TIMEOUT, HTTP_ERROR, NETWORK_ERROR, INVALID_RESPONSE]}
+        durationMs: {type: number, minimum: 0}
+        documentCount: {type: integer, minimum: 0}
+        vehicleFound: {type: [boolean, 'null']}
+        errorCode: {type: string}
+    SourceResults:
+      type: object
+      additionalProperties: false
+      required: [sales, service]
+      properties:
+        sales: {$ref: '#/components/schemas/SourceSummary'}
+        service: {$ref: '#/components/schemas/SourceSummary'}
+    UnifiedResult:
+      type: object
+      additionalProperties: false
+      required: [requestId, vin, partial, vehicle, sources, documents, documentCount, warnings, auditPersisted, totalDurationMs]
+      properties:
+        requestId: {type: string}
+        vin: {$ref: '#/components/schemas/VIN'}
+        partial: {type: boolean}
+        vehicle:
+          oneOf:
+            - {$ref: '#/components/schemas/Vehicle'}
+            - {type: 'null'}
+        sources: {$ref: '#/components/schemas/SourceResults'}
+        documents:
+          type: array
+          items: {$ref: '#/components/schemas/Document'}
+        documentCount: {type: integer, minimum: 0}
+        warnings:
+          type: array
+          items: {type: string}
+        auditPersisted: {type: boolean}
+        totalDurationMs: {type: number, minimum: 0}
+    ErrorResult:
+      type: object
+      additionalProperties: false
+      required: [requestId, error]
+      properties:
+        requestId: {type: string}
+        vin: {type: string}
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code: {type: string, enum: [INVALID_VIN, VEHICLE_NOT_FOUND, ALL_SOURCES_UNAVAILABLE, INTERNAL_ERROR]}
+            message: {type: string}
+        sources: {$ref: '#/components/schemas/SourceResults'}
+        totalDurationMs: {type: number}

@@ -1,27 +1,27 @@
-# Reviewer evidence Reviewer Evidence — Partial Delivery (2026-10-09)
+# Kaggle Reviewer Evidence — Execution Status and Remaining Gates (2026-10-09)
 
-## Implemented
-- notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb — 18-cell reviewer notebook (cell 01 markdown, 02–18 executable)
-- scripts/reviewer_evidence.py — independently recomputes overlap using trace event intervals and verifies exact request ID across trace JSON, SQLite audit and three structured JSONL server logs
-- scripts/build-reviewer-notebook.py — deterministic notebook generator; committed .ipynb is ready for reviewer use
-- tests/python/test_reviewer_evidence.py — 7 regression checks including stale/forged/missing evidence
-- Fresh-run evidence is tagged to a UUID run folder in /kaggle/working/keyloop-reviewer-runs and remains outside public static files
-- Notebook enforces collision-free port ownership; no generic pkill or destruction of existing Kaggle services
-- Public Cloudflare Tunnel is **optional and disabled by default**, with actual checked public health when explicitly enabled
+## Current artifacts
 
-## Execution evidence (local source verification)
-- Existing Foundation–Reviewer UI repository SHA at time of notebook local-run: 8be0a18d3b5a8ea318032fce8e20d5f32fb4b05c
-- Local-source mode: KEYLOOP_LOCAL_SOURCE=/mnt/workspace/keyloop-unified-document-viewer, KEYLOOP_NOTEBOOK_BASE_PORT=3100
-- Cells 02–18: PASS, 17 executable cells
-- Node automated tests: 26 PASS; Python evidence regression tests: 7 PASS
-- New request ID: req_9a18cc07-2ef2-4310-8a16-b72b53c66659
-- New parallel overlap: 26.75 ms
-- sqlite audit PASS; three-server correlation PASS; controlled fault integration test PASS
-- Actual outputs: /kaggle/working/keyloop-reviewer-runs/keyloop-e52a94870b93/reviewer-evidence.json and parallel-timeline.png
-- Prior real log reference evidence generated in evidence/kaggle-reviewer/existing-runtime-reference.*
+- Public repository: https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release
+- Canonical notebook: `notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`, **35 physical cells = 18 Markdown + 17 executable steps**.
+- Generator/source of truth: `scripts/build-reviewer-notebook.py`; rebuild after any generator changes.
+- Evidence checker: `scripts/reviewer_evidence.py`; regression suite: `tests/python/test_reviewer_evidence.py`.
+- Structured HTTP overlap, three-service request-ID correlation, private trace, SQLite audit and PNG timeline are generated for **fresh run-scoped requests** in `/kaggle/working/keyloop-reviewer-runs/<run-id>`.
+- Public frontend: **Step 16**, summary: **Step 17**. Cloudflare Quick Tunnel is enabled by default, ephemeral, and verified via HTTPS before being labeled available.
 
-## Mandatory remaining delivery gates
-- Git remote is currently UNSET. **Fresh clone of pinned public GitHub SHA has not been verified.** On public Kaggle, specify both KEYLOOP_REPO_URL and KEYLOOP_GIT_SHA; do not set KEYLOOP_LOCAL_SOURCE.
-- The notebook expects Python 3 and Internet for Git/npm; when Node 24 is unavailable, Cell 04 downloads the official SHA-256-verified Node v24.21.0 archive. This fallback still needs independent fresh Kaggle verification.
-- The video, final reviewed System Design and browser accessibility sign-off remain unfinished.
-- Notebook output is illustrative of actual local execution, not a final public reviewer Run All PASS.
+## Observed earlier verified execution (historical, not a new run)
+
+- Local-source notebook run: 17 executable cells completed, 26 Node tests and 7 Python tests passed; request `req_9a18cc07-2ef2-4310-8a16-b72b53c66659`, overlap 26.75 ms.
+- Public anonymous pinned-SHA clone and public-mode notebook run passed in an earlier session; representative request `req_eb133766-c395-4947-a574-326fa721a241`, overlap 27.58 ms.
+- A prior **zero-input** public-mode run completed all 17 executable steps, produced verified HTTP overlap and an available tunnel (request `req_7e1ee060-3264-490f-b538-ec1fe27be0b3`, overlap 26.165 ms).
+- After documentation updates, local and GitHub HEAD were both verified at `58110f27e1f2d11ac968fad49586d01ceacb6dae`. Notebook JSON had 35 structural cells. This does **not** itself prove fresh Kaggle Run All on that SHA.
+
+## Remaining acceptance checks (do not call PASS early)
+
+- Click-test the actual Kaggle GitHub notebook Link import UI; menu labels and accepted input may vary. Raw-file import remains fallback.
+- Perform fresh Kaggle **CPU + Internet** public GitHub Run All against current reviewed SHA; capture exact resolved SHA, request ID, counts, overlap, audit, logs and runtime URL.
+- Test a second Run All in same session without terminating unrelated processes; owned-process recovery is still pending.
+- Human touch/keyboard/screen-reader/error-state browser acceptance has not been documented for this Keyloop frontend.
+- Final review of System Design, OpenAPI, requirement traceability, public-file security and 5–10 minute assessment video remain necessary.
+
+**Boundaries:** Tests prove overlapping outgoing HTTP intervals, not parallel CPU instruction execution. Notebook and Quick Tunnel require active runtime. The app is synthetic document metadata aggregation, not an authenticated real-dealer service or PDF binary renderer.
