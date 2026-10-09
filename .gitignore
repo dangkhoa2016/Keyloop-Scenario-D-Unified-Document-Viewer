@@ -9,3 +9,6 @@ logs/*
 data/*
 !data/.gitkeep
 *.pid
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
