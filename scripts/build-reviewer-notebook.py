@@ -138,7 +138,7 @@ ENV=os.environ.copy();
 if prefix.startswith('export PATH='):
  ENV['PATH']=str(binary.parent)+os.pathsep+ENV.get('PATH','')
 ENV.update({'DATA_DIR':str(DATA),'LOG_DIR':str(LOG),
- 'WRITE_TRACE_SUMMARIES':'1','NODE_ENV':'development','SALES_PORT':str(PORTS['sales']),
+ 'WRITE_TRACE_SUMMARIES':'1','REVIEWER_PUBLIC_EVIDENCE':'1','NODE_ENV':'development','SALES_PORT':str(PORTS['sales']),
  'SERVICE_PORT':str(PORTS['service']),'UNIFIED_PORT':str(PORTS['unified']),
  'SALES_BASE_URL':f"http://127.0.0.1:{PORTS['sales']}",
  'SERVICE_BASE_URL':f"http://127.0.0.1:{PORTS['service']}"})
@@ -358,6 +358,12 @@ cells.append(nbformat.v4.new_markdown_cell('''## Step 18 — Live browser reques
 
 **To stop:** Kaggle **Interrupt** the running final cell (not Restart). Earlier completed evidence and server processes remain available. This cell stops automatically after 30 minutes; rerun only this cell to resume watching. Keep the Kaggle session connected.'''))
 MONITOR_CODE=MONITOR_CODE.replace("print(f\"\n[", "print(f\"\\n[")
+MONITOR_CODE=MONITOR_CODE.replace('if _svc=="unified" and _ev.get("event")=="aggregation_completed":',
+  '''if _svc=="unified" and _ev.get("event")=="aggregation_completed":
+                    if globals().get("PUBLIC_URL"):
+                        _evidence_url=PUBLIC_URL.rstrip("/")+"/reviewer/requests/"+_rid
+                        print("  FULL_REQUEST_RESPONSE_EVIDENCE="+_evidence_url,flush=True)
+                        _monitor_display(_monitor_md("[Open full Sales + Service + Unified responses in a new tab]("+_evidence_url+")"))''')
 cells.append(nbformat.v4.new_code_cell(MONITOR_CODE))
 assert len(cells)==37
 
