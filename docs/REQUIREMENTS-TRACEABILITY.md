@@ -1,15 +1,15 @@
-# Requirements Traceability — through Source APIs
+# Scenario D Requirements Traceability — through Unified aggregation
 
-| Requirement | Implementation | Evidence status |
+| Requirement | Implemented | Evidence |
 |---|---|---|
-| D-01 single VIN input | Shared validator implemented; browser UI not yet implemented | PARTIAL |
-| D-02 parallel upstream requests | Two independent HTTP systems completed; aggregator planned Unified aggregation | PARTIAL |
-| D-03 single consolidated list | Canonical sort unit tested; runtime aggregator and UI pending | PARTIAL |
-| D-04 attribution | Namespaced document contract unit tested; adapter/UI pending | PARTIAL |
-| BE-01 REST API | Sales and Service HTTP APIs implemented; Unified REST pending | PARTIAL |
-| BE-02 persistence | Three SQLite schemas, repeatable seed verified; Unified audit writes pending | PARTIAL |
-| SD-01–SD-04 | Initial System Design draft exists | PARTIAL |
-| AI-01 | README AI collaboration narrative needs Source APIs evidence | PARTIAL |
-| VID-01 | 5–10 minute submission video | NOT STARTED |
+| D-01 VIN input | Server-side VIN validation, demo VIN endpoint; UI pending | Invalid input test PASS, UI PENDING |
+| D-02 parallel HTTP | Unified concurrent calls to independent Sales/Service listeners | Monotonic overlap integration PASS |
+| D-03 consolidated list | Single canonical documents array, date-descending | Mixed-source list integration PASS; browser UI pending |
+| D-04 source attribution | Namespaced IDs and source for every normalized document | Integration PASS; UI pending |
+| BE-01 REST API | Unified GET vehicle documents plus health/demo routes | Real HTTP integration PASS |
+| BE-02 persistent DB | Three SQLite files, request_audit insert and lookup | Audit persistence test PASS |
+| SD-01–SD-04 | System Design draft; dedicated AI design section | Draft, reviewer signoff pending |
+| AI-01 | README AI narrative remains draft; real verification corrections documented | PARTIAL |
+| VID-01 | 5–10 minute video | PENDING |
 
-See docs/SOURCE-APIS-EXECUTION-REPORT.md for executed checks. Dynamic-port integration tests are not equivalent to a live public demo.
+Reviewer UI: UI and structured trace presentation; Reviewer evidence: public pinned Git, Kaggle and video.

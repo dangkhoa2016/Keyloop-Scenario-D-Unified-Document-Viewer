@@ -14,7 +14,8 @@
     "verify:seed": "tsx scripts/verify-seed.ts",
     "start:sales": "tsx apps/sales-api/src/index.ts",
     "start:service": "tsx apps/service-api/src/index.ts",
-    "test:integration": "vitest run tests/integration"
+    "test:integration": "vitest run tests/integration",
+    "start:unified": "tsx apps/unified-api/src/index.ts"
   },
   "keywords": [],
   "author": "",

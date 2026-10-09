@@ -1,0 +1,35 @@
+import {beforeAll,afterAll,describe,it,expect} from 'vitest';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {serve} from '@hono/node-server';
+import type Database from 'better-sqlite3';
+import {migrateDir,openDatabase} from '../../scripts/db-utils.js';
+import {seedDemoData} from '../../scripts/seed-lib.js';
+import {DEMO_VINS} from '../../scripts/fixture-data.js';
+import {createSalesApp} from '../../apps/sales-api/src/app.js';
+import {createServiceApp} from '../../apps/service-api/src/app.js';
+import {createUnifiedApp} from '../../apps/unified-api/src/app.js';
+import {UnifiedSchema} from '../../packages/shared/src/contracts.js';
+type Server=ReturnType<typeof serve>;
+let dir:string,salesDb:Database.Database,serviceDb:Database.Database,auditDb:Database.Database;
+const servers:Server[]=[],urls:string[]=[];
+const start=(fetch:(r:Request)=>Response|Promise<Response>)=>new Promise<{server:Server;url:string}>((resolve,reject)=>{const server=serve({fetch,hostname:'127.0.0.1',port:0},()=>{const address=server.address();if(!address||typeof address==='string')return reject(new Error('Missing listener address'));resolve({server,url:'http://127.0.0.1:'+address.port});});server.once('error',reject);});
+beforeAll(async()=>{dir=mkdtempSync(join(tmpdir(),'keyloop-unified-aggregation-'));migrateDir(dir);seedDemoData(dir);salesDb=openDatabase(dir,'sales');serviceDb=openDatabase(dir,'service');auditDb=openDatabase(dir,'unified-audit');process.env.ENABLE_TEST_FAULTS='1';for(const app of [createSalesApp(salesDb,{testFaults:true}),createServiceApp(serviceDb,{testFaults:true})]){const {server,url}=await start(app.fetch);servers.push(server);urls.push(url);}});
+afterAll(async()=>{await Promise.all(servers.map(server=>new Promise<void>((r,j)=>server.close(e=>e?j(e):r()))));salesDb.close();serviceDb.close();auditDb.close();rmSync(dir,{recursive:true,force:true});delete process.env.ENABLE_TEST_FAULTS;});
+function unified(opts:{sales?:string;service?:string;timeoutMs?:number;salesUrl?:string;serviceUrl?:string}={}) {
+ return createUnifiedApp({salesBaseUrl:opts.salesUrl??urls[0]!,serviceBaseUrl:opts.serviceUrl??urls[1]!,auditDb,timeoutMs:opts.timeoutMs??2000,testFaults:{sales:opts.sales,service:opts.service}});
+}
+const query=(app:ReturnType<typeof unified>,vin:string)=>app.request('http://localhost/api/vehicles/'+vin+'/documents');
+describe('Unified aggregation over real source HTTP',()=>{
+ it('merges, sorts and identifies both sources',async()=>{const res=await query(unified(),DEMO_VINS.VIN_BOTH),body=UnifiedSchema.parse(await res.json());expect(res.status).toBe(200);expect(body.partial).toBe(false);expect(body.documents).toHaveLength(10);expect(new Set(body.documents.map(x=>x.source))).toEqual(new Set(['SALES','SERVICE']));expect(body.documents.map(x=>x.date)).toEqual([...body.documents.map(x=>x.date)].sort().reverse());expect(body.auditPersisted).toBe(true);const row=auditDb.prepare('SELECT response_status,total_document_count FROM request_audit WHERE request_id=?').get(body.requestId) as {response_status:number;total_document_count:number};expect(row).toMatchObject({response_status:200,total_document_count:10});});
+ it('distinguishes known empty, source-only and unknown VIN',async()=>{for(const [vin,count] of [[DEMO_VINS.VIN_SALES_ONLY,3],[DEMO_VINS.VIN_SERVICE_ONLY,5],[DEMO_VINS.VIN_NO_DOCUMENTS,0]] as const){const res=await query(unified(),vin);const body=UnifiedSchema.parse(await res.json());expect(res.status).toBe(200);expect(body.documentCount).toBe(count);}const notFound=await query(unified(),DEMO_VINS.VIN_UNKNOWN);expect(notFound.status).toBe(404);expect((await notFound.json()).error.code).toBe('VEHICLE_NOT_FOUND');});
+ it('blocks invalid VIN before upstream activity and audit',async()=>{const count=(auditDb.prepare('SELECT count(*) AS n FROM request_audit').get() as {n:number}).n;const res=await query(unified(),'NOT_A_VALID_VIN');expect(res.status).toBe(400);expect((auditDb.prepare('SELECT count(*) AS n FROM request_audit').get() as {n:number}).n).toBe(count);});
+ it('serves healthy source on timeout',async()=>{const res=await query(unified({service:'delay:120',timeoutMs:35}),DEMO_VINS.VIN_BOTH);const body=UnifiedSchema.parse(await res.json());expect(res.status).toBe(200);expect(body.partial).toBe(true);expect(body.sources.service.status).toBe('TIMEOUT');expect(body.sources.sales.status).toBe('SUCCESS');expect(body.documents).toHaveLength(4);});
+ it('does not mistake HTTP 500 for successful fetch',async()=>{const res=await query(unified({sales:'http-500'}),DEMO_VINS.VIN_BOTH);const body=UnifiedSchema.parse(await res.json());expect(body.sources.sales.status).toBe('HTTP_ERROR');expect(body.partial).toBe(true);expect(body.documents).toHaveLength(6);});
+ it('handles malformed and schema-invalid upstream responses',async()=>{for(const fault of ['malformed-json','invalid-schema']){const res=await query(unified({service:fault}),DEMO_VINS.VIN_BOTH);const body=UnifiedSchema.parse(await res.json());expect(body.sources.service.status).toBe('INVALID_RESPONSE');expect(body.documents).toHaveLength(4);}});
+ it('never treats two technical failures as empty success',async()=>{const res=await query(unified({sales:'http-500',service:'invalid-schema'}),DEMO_VINS.VIN_BOTH);expect(res.status).toBe(503);expect((await res.json()).error.code).toBe('ALL_SOURCES_UNAVAILABLE');});
+ it('handles connection refusal and uncertain unknown VIN',async()=>{const res=await query(unified({salesUrl:'http://127.0.0.1:1'}),DEMO_VINS.VIN_UNKNOWN);const body=UnifiedSchema.parse(await res.json());expect(body.partial).toBe(true);expect(body.sources.sales.status).toBe('NETWORK_ERROR');expect(body.sources.service.status).toBe('NOT_FOUND');});
+ it('proves overlap using monotonic intervals',async()=>{let trace:{overlapMs:number;events:{event:string;source:string;offsetMs:number}[]}|undefined;const app=createUnifiedApp({salesBaseUrl:urls[0]!,serviceBaseUrl:urls[1]!,auditDb,timeoutMs:2000,testFaults:{sales:'delay:600',service:'delay:800'},onTrace:t=>{trace=t;}});const response=await query(app,DEMO_VINS.VIN_BOTH);expect(response.status).toBe(200);expect(trace).toBeDefined();expect(trace!.overlapMs).toBeGreaterThan(450);const begins=trace!.events.filter(x=>x.event==='started');const ends=trace!.events.filter(x=>x.event==='completed');expect(Math.max(...begins.map(x=>x.offsetMs))).toBeLessThan(Math.min(...ends.map(x=>x.offsetMs)));});
+ it('fails open when audit insert fails and marks readiness degraded',async()=>{const fakeDb={prepare(){throw new Error('Synthetic audit failure');}} as unknown as Database.Database;const app=createUnifiedApp({salesBaseUrl:urls[0]!,serviceBaseUrl:urls[1]!,auditDb:fakeDb});const res=await query(app,DEMO_VINS.VIN_BOTH);expect(res.status).toBe(200);const body=UnifiedSchema.parse(await res.json());expect(body.auditPersisted).toBe(false);expect((await app.request('/api/health/ready')).status).toBe(503);});
+});

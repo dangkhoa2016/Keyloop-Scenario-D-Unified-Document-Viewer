@@ -1,0 +1,10 @@
+import {serve} from '@hono/node-server';
+import {resolve} from 'node:path';
+import {openDatabase} from '../../../scripts/db-utils.js';
+import {createUnifiedApp} from './app.js';
+const host=process.env.UNIFIED_HOST??'127.0.0.1',port=Number(process.env.UNIFIED_PORT??3000);
+const db=openDatabase(resolve(process.env.DATA_DIR??'./data'),'unified-audit');
+const app=createUnifiedApp({auditDb:db,salesBaseUrl:process.env.SALES_BASE_URL??'http://127.0.0.1:3001',serviceBaseUrl:process.env.SERVICE_BASE_URL??'http://127.0.0.1:3002',timeoutMs:Number(process.env.UPSTREAM_TIMEOUT_MS??2000)});
+const server=serve({fetch:app.fetch,hostname:host,port});
+console.log('UNIFIED_LISTEN='+host+':'+port);
+for(const sig of ['SIGTERM','SIGINT'] as const)process.on(sig,()=>server.close(()=>{db.close();process.exit(0);}));
