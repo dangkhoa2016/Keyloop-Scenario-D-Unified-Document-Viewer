@@ -3,7 +3,7 @@
 ## Current artifacts
 
 - Public repository: https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release
-- Canonical notebook: `notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`, **35 physical cells = 18 Markdown + 17 executable steps**.
+- Canonical notebook: `notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`, **37 physical cells = 19 Markdown + 18 executable steps**.
 - Generator/source of truth: `scripts/build-reviewer-notebook.py`; rebuild after any generator changes.
 - Evidence checker: `scripts/reviewer_evidence.py`; regression suite: `tests/python/test_reviewer_evidence.py`.
 - Structured HTTP overlap, three-service request-ID correlation, private trace, SQLite audit and PNG timeline are generated for **fresh run-scoped requests** in `/kaggle/working/keyloop-reviewer-runs/<run-id>`.
@@ -36,3 +36,7 @@
 - This execution set `KEYLOOP_ENABLE_TUNNEL=0` intentionally to leave the already-working public port 3000 tunnel untouched; notebook output `TUNNEL_STATUS=UNAVAILABLE` must **not** be described as a tunnel connectivity failure or a successful new tunnel test.
 - First public-clone attempt on ports 3400–3402 stopped with `PORT_BUSY`, correctly protecting earlier occupied processes. Retry on an independently free port range (39000–39002) passed. Safe same-kernel rerun ownership/cleanup is **still pending**.
 - Separate latest documentation changes were committed locally after the public clone's earlier SHA; a public-clone run of those documentation changes still requires publishing them first. This run does not demonstrate Kaggle UI Link import.
+
+## Reviewer live monitor extension — implementation awaiting browser acceptance
+
+Step 18 is a final long-running log tail with 10-second polling, 30-minute bound and manual Interrupt. It prints new request IDs across private Unified/Sales/Service runtime log files, source counts and SQLite audit correlation. It is separate from the Step 17 reproducibility summary, never generates fake VIN queries, and contains only available server metadata (no historical raw response body capture). This update requires new notebook execution and real reviewer browser validation before recording acceptance PASS.
