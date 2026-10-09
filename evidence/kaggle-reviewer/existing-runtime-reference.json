@@ -1,0 +1,66 @@
+{
+  "requestId": "req_83ceea56-76da-4637-9818-eb4ce0ae838f",
+  "vin": "WVWZZZ1JZXW000001",
+  "startedAt": "2026-10-09T01:37:33.356Z",
+  "completedAt": "2026-10-09T01:37:33.362Z",
+  "httpStatus": 200,
+  "partial": false,
+  "totalDocumentCount": 10,
+  "totalDurationMs": 5.8456269999733195,
+  "overlapMs": 4.11411699996097,
+  "parallelExecution": true,
+  "auditVerified": true,
+  "sourceStatus": {
+    "sales": "SUCCESS",
+    "service": "SUCCESS"
+  },
+  "sourceDocumentCounts": {
+    "sales": 4,
+    "service": 6
+  },
+  "intervals": {
+    "SALES": {
+      "startedMs": 0.0792420000070706,
+      "completedMs": 5.068861999956425,
+      "durationMs": 4.989619999949355
+    },
+    "SERVICE": {
+      "startedMs": 0.9547449999954551,
+      "completedMs": 5.820138999959454,
+      "durationMs": 4.865393999963999
+    }
+  },
+  "correlatedLogs": {
+    "sales": [
+      {
+        "timestamp": "2026-10-09T01:37:33.359Z",
+        "event": "request_received",
+        "documentCount": null
+      },
+      {
+        "timestamp": "2026-10-09T01:37:33.360Z",
+        "event": "response_sent",
+        "documentCount": 4
+      }
+    ],
+    "service": [
+      {
+        "timestamp": "2026-10-09T01:37:33.360Z",
+        "event": "request_received",
+        "documentCount": null
+      },
+      {
+        "timestamp": "2026-10-09T01:37:33.360Z",
+        "event": "response_sent",
+        "documentCount": 6
+      }
+    ],
+    "unified": [
+      {
+        "timestamp": "2026-10-09T01:37:33.363Z",
+        "event": "aggregation_completed",
+        "documentCount": 10
+      }
+    ]
+  }
+}
