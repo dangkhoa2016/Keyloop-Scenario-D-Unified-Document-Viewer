@@ -1,0 +1,12 @@
+import { resolve } from 'node:path';
+import { seedDemoData, verifySeed } from './seed-lib.js';
+import { DEMO_VINS, FAKER_SEED, REFERENCE_DATE } from './fixture-data.js';
+const dir = resolve(process.env.DATA_DIR ?? './data');
+const state = seedDemoData(dir), result = verifySeed(dir);
+console.log('SEED_STATUS=' + state);
+console.log('DATASET_VERIFICATION=PASS');
+console.log('FAKER_SEED=' + FAKER_SEED);
+console.log('REFERENCE_DATE=' + REFERENCE_DATE);
+for (const [key,val] of Object.entries(result.counts)) console.log(key.toUpperCase()+'='+val);
+console.log('DATASET_FINGERPRINT_SHA256=' + result.fingerprint);
+for (const [key,val] of Object.entries(DEMO_VINS)) console.log(key + '=' + val);

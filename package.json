@@ -8,8 +8,13 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run tests/unit",
-    "lint": "eslint packages scripts tests",
-    "migrate": "tsx scripts/migrate.ts"
+    "lint": "eslint apps packages scripts tests",
+    "migrate": "tsx scripts/migrate.ts",
+    "seed": "tsx scripts/seed.ts",
+    "verify:seed": "tsx scripts/verify-seed.ts",
+    "start:sales": "tsx apps/sales-api/src/index.ts",
+    "start:service": "tsx apps/service-api/src/index.ts",
+    "test:integration": "vitest run tests/integration"
   },
   "keywords": [],
   "author": "",

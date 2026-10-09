@@ -1,0 +1,26 @@
+import {describe,it,expect,beforeAll,afterAll} from 'vitest';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {serve} from '@hono/node-server';
+import {migrateDir,openDatabase} from '../../scripts/db-utils.js';
+import {seedDemoData} from '../../scripts/seed-lib.js';
+import {DEMO_VINS} from '../../scripts/fixture-data.js';
+import {SalesRawSchema,ServiceRawSchema} from '../../packages/shared/src/raw.js';
+import {createSalesApp} from '../../apps/sales-api/src/app.js';
+import {createServiceApp} from '../../apps/service-api/src/app.js';
+import type Database from 'better-sqlite3';
+type Server=ReturnType<typeof serve>;
+let dir:string,salesDb:Database.Database,serviceDb:Database.Database,salesServer:Server,serviceServer:Server,salesUrl:string,serviceUrl:string;
+const start=(fetch:(r:Request)=>Response|Promise<Response>)=>new Promise<{server:Server;url:string}>((resolve,reject)=>{const server=serve({fetch,hostname:'127.0.0.1',port:0},()=>{const address=server.address();if(!address||typeof address==='string')return reject(new Error('No socket address'));resolve({server,url:'http://127.0.0.1:'+address.port});});server.once('error',reject);});
+const stop=(server:Server)=>new Promise<void>((res,rej)=>server.close(e=>e?rej(e):res()));
+beforeAll(async()=>{dir=mkdtempSync(join(tmpdir(),'keyloop-source-apis-'));migrateDir(dir);seedDemoData(dir);salesDb=openDatabase(dir,'sales');serviceDb=openDatabase(dir,'service');process.env.ENABLE_TEST_FAULTS='1';const a=await start(createSalesApp(salesDb,{testFaults:true}).fetch),b=await start(createServiceApp(serviceDb,{testFaults:true}).fetch);salesServer=a.server;serviceServer=b.server;salesUrl=a.url;serviceUrl=b.url;});
+afterAll(async()=>{await Promise.all([stop(salesServer),stop(serviceServer)]);salesDb.close();serviceDb.close();rmSync(dir,{recursive:true,force:true});delete process.env.ENABLE_TEST_FAULTS;});
+describe('Independent real HTTP upstream systems',()=>{
+it('returns distinct valid raw contracts',async()=>{const [s,v]=await Promise.all([fetch(salesUrl+'/api/vehicles/'+DEMO_VINS.VIN_BOTH+'/documents'),fetch(serviceUrl+'/api/vehicles/'+DEMO_VINS.VIN_BOTH+'/documents')]);expect(s.status).toBe(200);expect(v.status).toBe(200);const a=SalesRawSchema.parse(await s.json()),b=ServiceRawSchema.parse(await v.json());expect(a.salesDocuments.length).toBeGreaterThan(0);expect(b.records.length).toBeGreaterThan(0);});
+it('covers only/empty/unknown fixture cases',async()=>{for(const [name,sExpected,vExpected] of [['VIN_SALES_ONLY',3,0],['VIN_SERVICE_ONLY',0,5],['VIN_NO_DOCUMENTS',0,0]] as const){const vin=DEMO_VINS[name];const a=SalesRawSchema.parse(await (await fetch(salesUrl+'/api/vehicles/'+vin+'/documents')).json()),b=ServiceRawSchema.parse(await (await fetch(serviceUrl+'/api/vehicles/'+vin+'/documents')).json());expect(a.vehicleFound).toBe(true);expect(b.exists).toBe(true);expect(a.salesDocuments).toHaveLength(sExpected);expect(b.records).toHaveLength(vExpected);}const a=SalesRawSchema.parse(await (await fetch(salesUrl+'/api/vehicles/'+DEMO_VINS.VIN_UNKNOWN+'/documents')).json()),b=ServiceRawSchema.parse(await (await fetch(serviceUrl+'/api/vehicles/'+DEMO_VINS.VIN_UNKNOWN+'/documents')).json());expect(a.vehicleFound).toBe(false);expect(b.exists).toBe(false);});
+it('rejects invalid VIN',async()=>{for(const base of [salesUrl,serviceUrl])expect((await fetch(base+'/api/vehicles/INVALID/documents')).status).toBe(400);});
+it('keeps independent SQLite boundaries',()=>{expect(salesDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='service_documents'").get()).toBeUndefined();expect(serviceDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sales_documents'").get()).toBeUndefined();});
+it('reports readiness',async()=>{for(const base of [salesUrl,serviceUrl])expect((await fetch(base+'/api/health/ready')).status).toBe(200);});
+it('supports controlled HTTP 500, malformed JSON and delay',async()=>{for(const base of [salesUrl,serviceUrl]){expect((await fetch(base+'/api/vehicles/'+DEMO_VINS.VIN_BOTH+'/documents',{headers:{'X-Test-Fault':'http-500'}})).status).toBe(500);const x=await fetch(base+'/api/vehicles/'+DEMO_VINS.VIN_BOTH+'/documents',{headers:{'X-Test-Fault':'malformed-json'}});await expect(x.json()).rejects.toThrow();expect((await fetch(base+'/api/vehicles/'+DEMO_VINS.VIN_BOTH+'/documents',{headers:{'X-Test-Fault':'delay:5'}})).status).toBe(200);}});
+});
