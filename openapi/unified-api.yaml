@@ -1,0 +1,21 @@
+openapi: 3.1.0
+info:
+  title: Unified Document Viewer API
+  version: 0.1.0
+  description: Foundation contract skeleton. Endpoint implementation pending Unified aggregation.
+paths:
+  /api/vehicles/{vin}/documents:
+    get:
+      summary: Retrieve consolidated sales and service documents by VIN
+      parameters:
+        - name: vin
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+      responses:
+        '200': { description: Combined documents; may be partial }
+        '400': { description: Invalid VIN }
+        '404': { description: VIN unknown to both healthy sources }
+        '503': { description: Both upstreams unavailable }

@@ -1,0 +1,13 @@
+import {z} from 'zod';
+export const DateSchema=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s=>{const d=new Date(s+'T00:00:00Z');return !isNaN(+d)&&d.toISOString().slice(0,10)===s;});
+export const VehicleSchema=z.object({vin:z.string().regex(/^[A-HJ-NPR-Z0-9]{17}$/),make:z.string().min(1),model:z.string().min(1),year:z.number().int()}).strict();
+export const StatusSchema=z.enum(['SUCCESS','EMPTY','NOT_FOUND','TIMEOUT','HTTP_ERROR','NETWORK_ERROR','INVALID_RESPONSE']);
+export const SourceSchema=z.enum(['SALES','SERVICE']);
+export const DocumentSchema=z.object({id:z.string().min(1),sourceDocumentId:z.string().min(1),source:SourceSchema,type:z.string().min(1),title:z.string().min(1),date:DateSchema}).strict().refine(x=>x.id===x.source+':'+x.sourceDocumentId);
+export const SummarySchema=z.object({status:StatusSchema,durationMs:z.number().nonnegative(),documentCount:z.number().int().nonnegative(),vehicleFound:z.boolean().nullable(),errorCode:z.string().optional()}).strict();
+export const SourcesSchema=z.object({sales:SummarySchema,service:SummarySchema}).strict();
+export const UnifiedSchema=z.object({requestId:z.string(),vin:VehicleSchema.shape.vin,partial:z.boolean(),vehicle:VehicleSchema.nullable(),sources:SourcesSchema,documents:z.array(DocumentSchema),documentCount:z.number().int(),warnings:z.array(z.string()),auditPersisted:z.boolean(),totalDurationMs:z.number()}).strict().refine(v=>v.documentCount===v.documents.length&&v.documentCount===v.sources.sales.documentCount+v.sources.service.documentCount&&new Set(v.documents.map(x=>x.id)).size===v.documents.length);
+export const ErrorSchema=z.object({requestId:z.string(),vin:z.string().optional(),error:z.object({code:z.enum(['INVALID_VIN','VEHICLE_NOT_FOUND','ALL_SOURCES_UNAVAILABLE','INTERNAL_ERROR']),message:z.string()}),sources:SourcesSchema.optional(),totalDurationMs:z.number().optional()}).strict();
+export type UnifiedDocument=z.infer<typeof DocumentSchema>;
+export type Vehicle=z.infer<typeof VehicleSchema>;
+export type SourceSummary=z.infer<typeof SummarySchema>;

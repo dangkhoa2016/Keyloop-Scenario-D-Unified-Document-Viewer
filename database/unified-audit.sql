@@ -1,0 +1,3 @@
+CREATE TABLE IF NOT EXISTS request_audit(request_id TEXT PRIMARY KEY,vin TEXT,started_at TEXT NOT NULL,completed_at TEXT NOT NULL,response_status INTEGER NOT NULL,sales_status TEXT NOT NULL,sales_duration_ms REAL NOT NULL,sales_document_count INTEGER NOT NULL,service_status TEXT NOT NULL,service_duration_ms REAL NOT NULL,service_document_count INTEGER NOT NULL,total_document_count INTEGER NOT NULL,partial_result INTEGER NOT NULL CHECK(partial_result IN (0,1)),total_duration_ms REAL NOT NULL,audit_version INTEGER NOT NULL DEFAULT 1);
+CREATE INDEX IF NOT EXISTS idx_request_audit_started ON request_audit(started_at);
+CREATE INDEX IF NOT EXISTS idx_request_audit_vin ON request_audit(vin);
