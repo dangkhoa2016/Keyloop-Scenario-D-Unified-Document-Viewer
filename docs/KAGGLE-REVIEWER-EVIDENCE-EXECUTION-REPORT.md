@@ -2,7 +2,8 @@
 
 ## Current artifacts
 
-- Public repository: https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release
+- Historical public repository used for this recorded execution: https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release
+- Current canonical repository: https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer
 - Canonical notebook: `notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`, **37 physical cells = 19 Markdown + 18 executable steps**.
 - Generator/source of truth: `scripts/build-reviewer-notebook.py`; rebuild after any generator changes.
 - Evidence checker: `scripts/reviewer_evidence.py`; regression suite: `tests/python/test_reviewer_evidence.py`.

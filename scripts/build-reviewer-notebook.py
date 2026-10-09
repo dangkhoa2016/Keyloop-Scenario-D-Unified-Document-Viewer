@@ -21,7 +21,7 @@ PREVIOUS_NOTEBOOK_RUN=globals().get('RUN')
 RUN_ID = 'keyloop-' + uuid.uuid4().hex[:12]
 RUN = WORK / 'keyloop-reviewer-runs' / RUN_ID
 RUN.mkdir(parents=True,exist_ok=True)
-REPO_URL=os.environ.get('KEYLOOP_REPO_URL','https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release.git').strip()
+REPO_URL=os.environ.get('KEYLOOP_REPO_URL','https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer.git').strip()
 PINNED_SHA=os.environ.get('KEYLOOP_GIT_SHA','').strip()
 LOCAL_SOURCE=os.environ.get('KEYLOOP_LOCAL_SOURCE','').strip() # local-only dev, not reviewer submission
 # Re-running Run All in the same kernel: stop only explicitly owned Popen
@@ -91,14 +91,25 @@ else:
  prefix=''
  NODE_SOURCE='system'
 def runtime_versions(shell_prefix):
- command=shell_prefix+"node -p \"'__KEYLOOP_NODE_VERSION__=' + process.versions.node\"; npm_version=$(npm -v); printf '__KEYLOOP_NPM_VERSION__=%s\\n' \"$npm_version\""
+ import shlex
+ files={name:RUN/f'{name}-runtime-probe.txt' for name in ('node-version','npm-version','node-executable','npm-executable')}
+ for probe_file in files.values(): probe_file.unlink(missing_ok=True)
+ command=(shell_prefix+
+  f'command -v node > {shlex.quote(str(files["node-executable"]))} && '
+  f'command -v npm > {shlex.quote(str(files["npm-executable"]))} && '
+  f'node -p process.versions.node > {shlex.quote(str(files["node-version"]))} && '
+  f'npm -v > {shlex.quote(str(files["npm-version"]))}')
  result=run(['bash','-lc',command],cwd=SOURCE,check=False)
- node_match=re.search(r'(?m)^__KEYLOOP_NODE_VERSION__=(\\d+\\.\\d+\\.\\d+)\\r?$',result.stdout)
- npm_match=re.search(r'(?m)^__KEYLOOP_NPM_VERSION__=([^\\r\\n]+)\\r?$',result.stdout)
- return (node_match.group(1) if node_match else None, npm_match.group(1).strip() if npm_match else None, result)
-# Install exact Node 24 binary when a fresh Kaggle runtime has no suitable Node/npm.
-node_version,npm_version,probe=runtime_versions(prefix)
-if probe.returncode!=0 or not node_version or not node_version.startswith('24.') or not npm_version:
+ def read_probe(name):
+  path=files[name]
+  return path.read_text().strip() if path.is_file() else None
+ return read_probe('node-version'),read_probe('npm-version'),read_probe('node-executable'),read_probe('npm-executable'),result
+def runtime_ok(node_version,npm_version,result):
+ return result.returncode==0 and bool(node_version and node_version.startswith('24.') and npm_version)
+node_version,npm_version,node_executable,npm_executable,probe=runtime_versions(prefix)
+NODE_CACHE_STATUS='NOT_USED'
+binary=None
+if not runtime_ok(node_version,npm_version,probe):
  import urllib.request, hashlib, tarfile, platform
  assert platform.system()=='Linux' and platform.machine() in ('x86_64','aarch64'), 'Unsupported CPU architecture'
  arch='x64' if platform.machine()=='x86_64' else 'arm64'
@@ -106,26 +117,69 @@ if probe.returncode!=0 or not node_version or not node_version.startswith('24.')
  basename=f'node-{version}-linux-{arch}'
  url=f'https://nodejs.org/dist/{version}/{basename}.tar.xz'
  root=WORK/'keyloop-runtime-tools';root.mkdir(parents=True,exist_ok=True)
- binary=root/basename/'bin'/'node'
- if not binary.is_file():
-  archive=root/(basename+'.tar.xz')
+ distribution=root/basename
+ def distribution_complete(path):
+  required=[path/'bin'/'node',path/'bin'/'npm',path/'lib'/'node_modules'/'npm'/'package.json']
+  return all(item.is_file() for item in required)
+ def install_verified_distribution():
+  staging=root/(basename+'.staging-'+RUN_ID)
+  archive=root/(basename+'.tar.xz.download-'+RUN_ID)
+  if staging.exists(): shutil.rmtree(staging)
+  archive.unlink(missing_ok=True)
   urllib.request.urlretrieve(url,archive)
   checksums=urllib.request.urlopen(f'https://nodejs.org/dist/{version}/SHASUMS256.txt',timeout=20).read().decode()
   expected=next(line.split()[0] for line in checksums.splitlines() if line.endswith(basename+'.tar.xz'))
-  assert hashlib.sha256(archive.read_bytes()).hexdigest()==expected, 'NODE_TARBALL_SHA256_MISMATCH'
-  with tarfile.open(archive) as tar:
-   for member in tar.getmembers():
-    assert not pathlib.Path(member.name).is_absolute() and '..' not in pathlib.Path(member.name).parts, 'Unsafe archive path'
-   tar.extractall(root,filter='data')
-  archive.unlink()
+  actual=hashlib.sha256(archive.read_bytes()).hexdigest()
+  assert actual==expected, 'NODE_TARBALL_SHA256_MISMATCH'
+  extract_root=root/(basename+'.extract-'+RUN_ID)
+  if extract_root.exists(): shutil.rmtree(extract_root)
+  extract_root.mkdir(parents=True)
+  try:
+   with tarfile.open(archive) as tar:
+    for member in tar.getmembers():
+     assert not pathlib.Path(member.name).is_absolute() and '..' not in pathlib.Path(member.name).parts, 'Unsafe archive path'
+    tar.extractall(extract_root,filter='data')
+   extracted=extract_root/basename
+   assert distribution_complete(extracted), 'NODE_DISTRIBUTION_INCOMPLETE_AFTER_EXTRACTION'
+   extracted.rename(staging)
+   if distribution.exists(): shutil.rmtree(distribution)
+   staging.rename(distribution)
+  finally:
+   archive.unlink(missing_ok=True)
+   if extract_root.exists(): shutil.rmtree(extract_root)
+   if staging.exists(): shutil.rmtree(staging)
+ cache_existed=distribution.exists()
+ if not distribution_complete(distribution):
+  if distribution.exists(): shutil.rmtree(distribution)
+  NODE_CACHE_STATUS='REPAIRED_INCOMPLETE' if cache_existed else 'BUILT_FRESH'
+  install_verified_distribution()
+ else:
+  NODE_CACHE_STATUS='REUSED_COMPLETE'
+ binary=distribution/'bin'/'node'
  prefix=f'export PATH={str(binary.parent)!r}:$PATH; '
  NODE_SOURCE='verified_download'
-node_version,npm_version,verified=runtime_versions(prefix)
-assert verified.returncode==0 and node_version and node_version.startswith('24.'), 'Node.js 24 runtime unavailable; inspect runtime probe output: '+verified.stdout[-1200:]
-assert npm_version, 'npm runtime unavailable; inspect runtime probe output: '+verified.stdout[-1200:]
+ node_version,npm_version,node_executable,npm_executable,verified=runtime_versions(prefix)
+ if not runtime_ok(node_version,npm_version,verified):
+  shutil.rmtree(distribution)
+  NODE_CACHE_STATUS='REPAIRED_FAILED_PROBE'
+  install_verified_distribution()
+  node_version,npm_version,node_executable,npm_executable,verified=runtime_versions(prefix)
+else:
+ verified=probe
+assert runtime_ok(node_version,npm_version,verified), (
+ 'Node.js 24 runtime unavailable; '
+ f'NODE_PROBE_RC={verified.returncode}; NODE_CACHE_STATUS={NODE_CACHE_STATUS}; '
+ f'NODE_EXECUTABLE={node_executable}; NPM_EXECUTABLE={npm_executable}; '
+ 'probe_output='+verified.stdout[-1200:])
+print('__KEYLOOP_NODE_VERSION__='+node_version)
+print('__KEYLOOP_NPM_VERSION__='+npm_version)
 print('NODE_RUNTIME='+node_version)
 print('NPM_RUNTIME='+npm_version)
 print('NODE_SOURCE='+NODE_SOURCE)
+print('NODE_CACHE_STATUS='+NODE_CACHE_STATUS)
+print('NODE_PROBE_RC='+str(verified.returncode))
+print('NODE_EXECUTABLE='+str(node_executable or 'N/A'))
+print('NPM_EXECUTABLE='+str(npm_executable or 'N/A'))
 install=run(['bash','-lc',prefix+'npm ci'],cwd=SOURCE,timeout=300)
 print('NPM_CI=PASS',install.stdout[-450:])""")
 code("""# 05 — Build and static analysis
@@ -149,9 +203,9 @@ TESTS['SEED_VERIFICATION']='PASS'
 VINS={'both':'WVWZZZ1JZXW000001','sales_only':'WVWZZZ1JZXW000002','service_only':'WVWZZZ1JZXW000003','empty':'WVWZZZ1JZXW000004'}""")
 code("""# 07 — Offline automated tests (real ephemeral loopback HTTP, test SQLite)
 out=run(['bash','-lc',prefix+'npm run test -- --silent'],cwd=SOURCE,env=ENV,timeout=120)
-assert re.search(r'26 passed',out.stdout), 'Expected 26 passing Node tests; inspect output'
-print('NODE_TESTS=PASS: 26')
-out2=run([sys.executable,'-m','unittest','discover','-s','tests/python','-v'],cwd=SOURCE,env=ENV,timeout=90)
+assert re.search(r'27 passed',out.stdout), 'Expected 27 passing Node tests; inspect output'
+print('NODE_TESTS=PASS: 27')
+out2=run([sys.executable,'tests/python/test_reviewer_evidence.py'],cwd=SOURCE,env=ENV,timeout=90)
 assert 'Ran 7 tests' in out2.stdout and '\\nOK' in out2.stdout
 print('EVIDENCE_RENDERER_TESTS=PASS: 7')
 TESTS['UNIT_INTEGRATION']='PASS'""")
@@ -233,7 +287,7 @@ EVIDENCE['PARALLEL_EXECUTION']='PASS'""")
 code("""# 14 — Local-only failure semantics: never expose fault headers publicly
 # Execute the project's deterministic fault-injection integration suite on isolated ports.
 result=run(['bash','-lc',prefix+'npm run test:integration -- --silent'],cwd=SOURCE,env=ENV,timeout=120)
-assert '16 passed' in result.stdout or '20 passed' in result.stdout, 'Integration assertions not confirmed'
+assert '21 passed' in result.stdout, 'Expected 21 passing integration tests; inspect output'
 print('PARTIAL_RESPONSE=PASS (local-only timeout/HTTP-500/malformed/503 scenarios asserted)')
 print('FAULT_INJECTION_PUBLICLY_EXPOSED=NO')
 EVIDENCE['PARTIAL_RESPONSE']='PASS'""")
@@ -258,12 +312,55 @@ code("""# 17 — Optional public Cloudflare Quick Tunnel (only port Unified)
 # Disabled by default; enabling is an intentional reviewer action.
 PUBLIC_URL=None
 if ENABLE_TUNNEL:
+ import urllib.request, hashlib, platform
+ cf_version='2026.10.0'
+ machine=platform.machine()
+ assert machine in ('x86_64','aarch64'), 'Unsupported cloudflared CPU architecture'
+ cf_arch='amd64' if machine=='x86_64' else 'arm64'
+ cf_sha256={'amd64':'d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db',
+            'arm64':'e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d72a80b5ac08'}[cf_arch]
  binary=WORK/'bin'/'cloudflared'
- if not binary.is_file():
-  import urllib.request
-  binary.parent.mkdir(parents=True,exist_ok=True)
-  urllib.request.urlretrieve('https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64',binary)
-  binary.chmod(0o755)
+ binary.parent.mkdir(parents=True,exist_ok=True)
+ def cloudflared_probe(path):
+  if not path.is_file() or not os.access(path,os.X_OK): return None,None
+  result=run([str(path),'--version'],cwd=SOURCE,timeout=15,check=False)
+  return result,result.stdout.strip()
+ def install_cloudflared():
+  staging=binary.parent/f'.cloudflared.staging-{RUN_ID}'
+  staging.unlink(missing_ok=True)
+  url=f'https://github.com/cloudflare/cloudflared/releases/download/{cf_version}/cloudflared-linux-{cf_arch}'
+  try:
+   urllib.request.urlretrieve(url,staging)
+   actual=hashlib.sha256(staging.read_bytes()).hexdigest()
+   assert actual==cf_sha256, 'CLOUDFLARED_SHA256_MISMATCH'
+   staging.chmod(0o755)
+   probe,version_text=cloudflared_probe(staging)
+   assert probe is not None and probe.returncode==0 and cf_version in (version_text or ''), 'CLOUDFLARED_STAGING_PROBE_FAILED'
+   os.replace(staging,binary)
+  finally:
+   staging.unlink(missing_ok=True)
+ CLOUDFLARED_CACHE_STATUS='MISSING'
+ probe,version_text=cloudflared_probe(binary)
+ if not binary.exists():
+  CLOUDFLARED_CACHE_STATUS='BUILT_FRESH'
+  install_cloudflared()
+ elif not binary.is_file() or not os.access(binary,os.X_OK):
+  if binary.is_dir(): shutil.rmtree(binary)
+  else: binary.unlink(missing_ok=True)
+  CLOUDFLARED_CACHE_STATUS='REPAIRED_NON_EXECUTABLE'
+  install_cloudflared()
+ elif probe is None or probe.returncode!=0 or cf_version not in (version_text or ''):
+  binary.unlink(missing_ok=True)
+  CLOUDFLARED_CACHE_STATUS='REPAIRED_FAILED_PROBE'
+  install_cloudflared()
+ else:
+  CLOUDFLARED_CACHE_STATUS='REUSED_VALID'
+ probe,version_text=cloudflared_probe(binary)
+ assert probe is not None and probe.returncode==0 and cf_version in (version_text or ''), 'CLOUDFLARED_RUNTIME_UNAVAILABLE'
+ print('CLOUDFLARED_CACHE_STATUS='+CLOUDFLARED_CACHE_STATUS)
+ print('CLOUDFLARED_PROBE_RC='+str(probe.returncode))
+ print('CLOUDFLARED_VERSION='+str(version_text or 'N/A'))
+ print('CLOUDFLARED_EXECUTABLE='+str(binary))
  tunnel_log=open(LOG/'cloudflared.log','ab',buffering=0)
  tunnel=subprocess.Popen([str(binary),'tunnel','--url',BASE],cwd=str(SOURCE),stdout=tunnel_log,stderr=subprocess.STDOUT,start_new_session=True)
  PROCS['cloudflared']=tunnel
@@ -316,7 +413,7 @@ guides = [
 ('Install Node.js dependencies','This Python notebook runs a Node.js/TypeScript backend. The cell uses Node.js 24, installing a verified official binary if needed, and runs npm ci using the lockfile. Expected: Node v24 and NPM_CI=PASS; your computer needs no local setup.'),
 ('Validate the source code','Typecheck checks TypeScript correctness, lint identifies common bugs, and build compiles the backend. Expected: TYPECHECK=PASS, LINT=PASS and BUILD=PASS. Any failure stops execution rather than falsely reporting success.'),
 ('Build three isolated SQLite databases','Sales, Service and Unified Audit each have separate SQLite storage. This step creates a fresh run-specific data directory and deterministically seeds synthetic sample vehicles. Expected: migration passes and DATASET_VERIFICATION=PASS.'),
-('Run the automated test suite','Node tests cover schemas and real HTTP integration, while Python tests validate evidence reconstruction. Expected: 26 Node tests and 7 Python evidence tests. These do not replace browser testing in Step 16.'),
+('Run the automated test suite','Node tests cover schemas and real HTTP integration, while Python tests validate evidence reconstruction. Expected: 27 Node tests and 7 Python evidence tests. These do not replace browser testing in Step 16.'),
 ('Launch the Sales source API','Starts an independent loopback-only HTTP service with sales.sqlite. The notebook auto-selects an available group of three local ports if defaults are busy, and rechecks before startup. Expected: SALES_READY=PASS and a process ID. No unrelated processes are killed.'),
 ('Launch the Service source API','Starts a second independent loopback-only HTTP service using service.sqlite and a different JSON response format. Expected: SERVICE_READY=PASS. Unified must translate both formats.'),
 ('Launch Unified API and frontend','Starts the reviewer-facing server. It requests Sales and Service concurrently over HTTP, consolidates documents and writes audit records. Expected: UNIFIED_READY=PASS. A public browser URL will appear in Step 16.'),
@@ -337,10 +434,10 @@ intro=nbformat.v4.new_markdown_cell('''# Unified Document Viewer — Guided Kagg
 **New to Kaggle? Import the notebook directly from GitHub:** sign in at [Kaggle](https://www.kaggle.com/code), select **New Notebook → File → Import Notebook → Link**, and paste the following *file URL* (not the repository homepage):
 
 ```text
-https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release/blob/main/notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb
+https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer/blob/main/notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb
 ```
 
-Select **Import**. If Kaggle provides a **GitHub** tab instead, select repository `dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release` and `notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`. **Fallback:** use GitHub **Raw** to download the .ipynb and upload it via the import menu. Confirm **37 cells (19 Markdown + 18 executable)**. Then select **CPU** as accelerator, enable **Internet** in notebook settings, and choose **Run All**.
+Select **Import**. If Kaggle provides a **GitHub** tab instead, select repository `dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer` and `notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`. **Fallback:** use GitHub **Raw** to download the .ipynb and upload it via the import menu. Confirm **37 cells (19 Markdown + 18 executable)**. Then select **CPU** as accelerator, enable **Internet** in notebook settings, and choose **Run All**.
 
 No GitHub PAT, repository URL, SHA, Docker, or Google Drive is required. Each Markdown section explains the code cell beneath it. For a live interaction, follow Step 16 to open the temporary browser URL and test the VIN search and source filters. All sample records are synthetic.
 
@@ -366,6 +463,16 @@ MONITOR_CODE=MONITOR_CODE.replace('if _svc=="unified" and _ev.get("event")=="agg
                         _monitor_display(_monitor_md("[Open full Sales + Service + Unified responses in a new tab]("+_evidence_url+")"))''')
 cells.append(nbformat.v4.new_code_cell(MONITOR_CODE))
 assert len(cells)==37
+
+# Deterministic Jupyter cell IDs keep regenerated notebook artifacts byte-stable.
+# IDs depend only on cell position, type, and source content.
+import hashlib
+for index, cell in enumerate(cells):
+    source = cell.get('source', '')
+    if isinstance(source, list):
+        source = ''.join(source)
+    payload = f'{index}:{cell.get("cell_type", "")}:{source}'.encode('utf-8')
+    cell['id'] = hashlib.sha256(payload).hexdigest()[:8]
 
 n.cells=cells
 n.metadata={'kernelspec':{'name':'python3','display_name':'Python 3','language':'python'},'language_info':{'name':'python'}}

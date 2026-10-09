@@ -6,8 +6,8 @@ The public notebook `notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb` contains **
 
 1. Sign in to [Kaggle Code](https://www.kaggle.com/code) and create a New Notebook.
 2. In the notebook editor, look for **File → Import Notebook → Link** (menu labels may vary). Paste the complete notebook *file* URL:
-   `https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release/blob/main/notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`
-3. If available, use the GitHub import tab and select repository `dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release` and path `notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`.
+   `https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer/blob/main/notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`
+3. If available, use the GitHub import tab and select repository `dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer` and path `notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb`.
 4. If neither option works, open that file on GitHub, select **Raw**, download the `.ipynb`, and upload it through Kaggle's notebook import option.
 5. Confirm 37 cells. Select **CPU** (no accelerator), enable **Internet**, and choose **Run All**.
 
