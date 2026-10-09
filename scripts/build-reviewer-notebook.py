@@ -270,6 +270,41 @@ print('TIMELINE_PNG='+str(PNG))
 print('NOTE: URLs are ephemeral and data is synthetic. Runtime processes are owned by this kernel.')
 print('='*60)""")
 assert len(cells)==18,len(cells)
+# Add self-contained reviewer guidance before every executable step.
+guides = [
+('Start here: Kaggle setup','Sign in to Kaggle, import this notebook from GitHub, choose a CPU session and turn Internet ON. Click Run All. No credentials, GitHub URL, SHA or manual configuration are required. The next cell creates a unique run directory. Expected: RUN_ID and PINNED_PUBLIC_GIT.'),
+('Fetch public source','The notebook clones the public GitHub repository, resolves main to an immutable SHA, and checks it out. The printed SHA identifies the tested revision. Expected: SOURCE_REPRODUCIBILITY=PASS. If cloning fails, check Kaggle Internet access.'),
+('Install Node.js dependencies','This Python notebook runs a Node.js/TypeScript backend. The cell uses Node.js 24, installing a verified official binary if needed, and runs npm ci using the lockfile. Expected: Node v24 and NPM_CI=PASS; your computer needs no local setup.'),
+('Validate the source code','Typecheck checks TypeScript correctness, lint identifies common bugs, and build compiles the backend. Expected: TYPECHECK=PASS, LINT=PASS and BUILD=PASS. Any failure stops execution rather than falsely reporting success.'),
+('Build three isolated SQLite databases','Sales, Service and Unified Audit each have separate SQLite storage. This step creates a fresh run-specific data directory and deterministically seeds synthetic sample vehicles. Expected: migration passes and DATASET_VERIFICATION=PASS.'),
+('Run the automated test suite','Node tests cover schemas and real HTTP integration, while Python tests validate evidence reconstruction. Expected: 26 Node tests and 7 Python evidence tests. These do not replace browser testing in Step 16.'),
+('Launch the Sales source API','Starts an independent loopback-only HTTP service with sales.sqlite. Expected: SALES_READY=PASS and a process ID. PORT_BUSY means another process owns the port; restart the Kaggle session instead of killing unrelated processes.'),
+('Launch the Service source API','Starts a second independent loopback-only HTTP service using service.sqlite and a different JSON response format. Expected: SERVICE_READY=PASS. Unified must translate both formats.'),
+('Launch Unified API and frontend','Starts the reviewer-facing server. It requests Sales and Service concurrently over HTTP, consolidates documents and writes audit records. Expected: UNIFIED_READY=PASS. A public browser URL will appear in Step 16.'),
+('Confirm API readiness','Makes real HTTP requests to the three readiness endpoints and checks process health. Expected: SALES_API_READY, SERVICE_API_READY and UNIFIED_API_READY all PASS.'),
+('Try a real VIN search','Looks up WVWZZZ1JZXW000001 through Unified. Expected: HTTP 200, 10 combined documents (4 Sales and 6 Service), partial=false, auditPersisted=true. Inspect the table with date, source, ID, type and title.'),
+('Prove parallel HTTP execution','The evidence verifier recomputes start and end offsets from the fresh request trace. Parallel execution requires positive overlap: both requests are active at the same time. Expected: PARALLEL_EXECUTION=PASS; timings vary by runtime.'),
+('Check degraded behavior','Runs isolated integration tests with HTTP errors, timeouts and invalid upstream responses. A healthy source must still return its results if the other fails; two technical failures lead to HTTP 503. Expected: PARTIAL_RESPONSE=PASS. Fault injection is not public.'),
+('Verify audit persistence','Queries the separate SQLite audit database by the exact new request ID. Compare HTTP status, VIN and source counts to the response. Expected: SQLITE_AUDIT=PASS, 4 + 6 = 10 documents.'),
+('Inspect the real timing chart','Correlates request ID across Sales, Service and Unified logs, the private trace and SQLite. Displays a chart of two overlapping HTTP intervals. Expected: TRACE_CORRELATION=PASS and a timeline image.'),
+('Open the interactive frontend','The Kaggle server is normally inaccessible from your laptop. This step creates a temporary Cloudflare HTTPS tunnel to Unified only. Click the generated Interactive browser demo link; search WVWZZZ1JZXW000001 and use All, Sales, Service filters. Expected: TUNNEL_STATUS=AVAILABLE. If unavailable, check Kaggle Internet and rerun this step; links expire when Kaggle stops.'),
+('Review the final evidence','Read the resolved Git SHA, PASS/FAIL checks, request ID, overlap timing, SQLite audit, and public URL. Confirm that you personally tested the frontend if the tunnel is available. Data are synthetic; this is not a production dealership connection.')
+]
+assert len(guides)==17
+import nbformat
+old_code=cells[1:]
+intro=nbformat.v4.new_markdown_cell('''# Unified Document Viewer — Guided Kaggle Review
+
+**New to Kaggle?** Sign up or sign in at [Kaggle](https://www.kaggle.com/), download the notebook from [GitHub](https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release/blob/main/notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb), and upload the .ipynb file into a new Kaggle Notebook. Select **CPU** as accelerator, enable **Internet** in notebook settings, and choose **Run All**.
+
+No GitHub PAT, repository URL, SHA, Docker, or Google Drive is required. Each Markdown section explains the code cell beneath it. For a live interaction, follow Step 16 to open the temporary browser URL and test the VIN search and source filters. All sample records are synthetic.
+
+**Review map:** Step 11 combines Sales and Service documents; Step 12 proves overlapping HTTP calls; Step 14 verifies SQLite audit; Step 15 shows a timeline; Step 16 opens the frontend; Step 17 summarizes all checks.''')
+cells=[intro]
+for i,((title,description),cell) in enumerate(zip(guides,old_code),1):
+ cells.extend([nbformat.v4.new_markdown_cell(f'## Step {i:02d} — {title}\n\n**What happens:** {description}\n\n**Reviewer action:** Read the output and confirm the expected status before moving to the next step. On Run All this runs automatically; errors should be investigated, not skipped.'),cell])
+assert len(cells)==35
+
 n.cells=cells
 n.metadata={'kernelspec':{'name':'python3','display_name':'Python 3','language':'python'},'language_info':{'name':'python'}}
 path=Path('notebooks/Keyloop-Scenario-D-Kaggle-Demo.ipynb')
