@@ -7,11 +7,13 @@ import type Database from 'better-sqlite3';
 import {parseVin} from '../../../packages/shared/src/vin.js';
 import {decideOutcome,reconcileVehicles,sortDocuments} from '../../../packages/shared/src/aggregate.js';
 import {UnifiedSchema} from '../../../packages/shared/src/contracts.js';
+import {readRequestEvents,writeRequestEvent} from '../../../packages/logging/src/request-events.js';
 import {DEMO_VINS} from '../../../scripts/fixture-data.js';
 import {adaptSales,adaptService} from './adapters/source-adapters.js';
 import {requestSource,type TimelineEvent} from './clients/upstream.js';
 import {persistAudit} from './persistence/audit.js';
 import {renderEvidencePage} from './reviewer/evidence-page.js';
+import {buildRequestReport} from './reviewer/request-report.js';
 export interface UnifiedOptions{salesBaseUrl:string;serviceBaseUrl:string;timeoutMs?:number;auditDb:Database.Database;testFaults?:{sales?:string;service?:string};onTrace?:(trace:{requestId:string;events:TimelineEvent[];overlapMs:number;totalDurationMs:number})=>void}
 export function createUnifiedApp(config:UnifiedOptions){
  const app=new Hono();
@@ -29,6 +31,7 @@ export function createUnifiedApp(config:UnifiedOptions){
    return c.html(html,200,{'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",'X-Robots-Tag':'noindex, nofollow'});
   });
  }
+ app.get('/api/observability/requests/:requestId',c=>{const requestId=c.req.param('requestId');const report=buildRequestReport(requestId,readRequestEvents(config.auditDb,requestId));return report?c.json(report):c.json({requestId,error:{code:'REQUEST_NOT_FOUND',message:'No persisted evidence exists for this request ID.'}},404);});
 
  let auditDegraded=false;
  const staticFiles=new Map<string,[string,string]>([['/', ['index.html','text/html; charset=utf-8']],['/assets/app.css',['assets/app.css','text/css; charset=utf-8']],['/assets/app.js',['assets/app.js','text/javascript; charset=utf-8']]]);
@@ -44,14 +47,19 @@ export function createUnifiedApp(config:UnifiedOptions){
  app.get('/api/demo-vins',c=>c.json(DEMO_VINS));
  app.get('/api/vehicles/:vin/documents',async c=>{
   const requestId='req_'+randomUUID(),start=performance.now(),startedAt=new Date().toISOString();
-  const vin=parseVin(c.req.param('vin'));
-  if(!vin)return c.json({requestId,error:{code:'INVALID_VIN',message:'VIN must contain exactly 17 valid characters.'}},400);
+  const vin=parseVin(c.req.param('vin')),path=new URL(c.req.url).pathname;
+  const event=(name:string,extra:Record<string,unknown>={})=>writeRequestEvent(config.auditDb,{requestId,service:'unified',event:name,method:'GET',path,vin,...extra});
+  event('browser_request_received');
+  if(!vin){event('browser_response_sent',{httpStatus:400,durationMs:performance.now()-start,documentCount:0,partial:false,errorCode:'INVALID_VIN'});return c.json({requestId,error:{code:'INVALID_VIN',message:'VIN must contain exactly 17 valid characters.'}},400);}
   const events:TimelineEvent[]=[];
   const timeoutMs=Math.max(1,Math.min(10000,config.timeoutMs??2000));
+  event('sales_request_started',{upstream:'SALES'});event('service_request_started',{upstream:'SERVICE'});
   const [sales,service]=await Promise.all([
    requestSource({source:'SALES',baseUrl:config.salesBaseUrl,vin,requestId,timeoutMs,requestStart:start,adapt:adaptSales,events,testFault:config.testFaults?.sales}),
    requestSource({source:'SERVICE',baseUrl:config.serviceBaseUrl,vin,requestId,timeoutMs,requestStart:start,adapt:adaptService,events,testFault:config.testFaults?.service}),
   ]);
+  event('sales_response_received',{upstream:'SALES',httpStatus:sales.capturedHttpStatus??null,durationMs:sales.summary.durationMs,documentCount:sales.summary.documentCount,errorCode:sales.summary.errorCode??null});
+  event('service_response_received',{upstream:'SERVICE',httpStatus:service.capturedHttpStatus??null,durationMs:service.summary.durationMs,documentCount:service.summary.documentCount,errorCode:service.summary.errorCode??null});
   const sources={sales:sales.summary,service:service.summary};
   const decision=decideOutcome(sources.sales,sources.service);
   const reconciled=reconcileVehicles(sales.data?.vehicle??null,service.data?.vehicle??null);
@@ -65,15 +73,18 @@ export function createUnifiedApp(config:UnifiedOptions){
   config.onTrace?.({requestId,events,overlapMs,totalDurationMs});
   if(tracesEnabled){try{writeFileSync(resolve(traceDir,requestId+'.json'),JSON.stringify({requestId,vin,startedAt,completedAt:new Date().toISOString(),events,overlapMs,sourceStatus:{sales:sources.sales.status,service:sources.service.status},documentCount:documents.length,auditPersisted,totalDurationMs},null,2),{flag:'wx',mode:0o600});const entries=readdirSync(traceDir).filter(x=>/^req_[a-f0-9-]{36}\.json$/.test(x)).sort();for(const filename of entries.slice(0,Math.max(0,entries.length-50)))unlinkSync(resolve(traceDir,filename));}catch{console.error(JSON.stringify({event:'trace_write_failed',requestId}));}}
   console.log(JSON.stringify({timestamp:new Date().toISOString(),service:'unified',event:'aggregation_completed',requestId,vin,status:decision.httpStatus,salesStatus:sources.sales.status,serviceStatus:sources.service.status,documentCount:documents.length,partial:decision.partial,overlapMs,auditPersisted}));
+  event('aggregation_completed',{httpStatus:decision.httpStatus,documentCount:documents.length,partial:decision.partial});
   if(decision.errorCode){const message=decision.httpStatus===404?'No vehicle was found for the supplied VIN.':'Both source systems are unavailable.';
    const body={requestId,vin,error:{code:decision.errorCode,message},sources,totalDurationMs};
    putCapture({requestId,vin,recordedAt:new Date().toISOString(),sales:{httpStatus:sales.capturedHttpStatus,body:sales.capturedResponse??null,summary:sales.summary},service:{httpStatus:service.capturedHttpStatus,body:service.capturedResponse??null,summary:service.summary},unified:{httpStatus:decision.httpStatus,body},overlapMs,events:events.map(e=>({...e}))});
+   event('browser_response_sent',{httpStatus:decision.httpStatus,durationMs:totalDurationMs,documentCount:documents.length,partial:decision.partial,errorCode:decision.errorCode});
    return c.json(body,decision.httpStatus===404?404:503);
   }
   const result={requestId,vin,partial:decision.partial,vehicle,sources,documents,documentCount:documents.length,warnings,auditPersisted,totalDurationMs};
   const validation=UnifiedSchema.safeParse(result);
-  if(!validation.success){console.error(JSON.stringify({event:'unified_contract_error',requestId}));return c.json({requestId,error:{code:'INTERNAL_ERROR',message:'Unable to complete document search.'}},500);}
+  if(!validation.success){console.error(JSON.stringify({event:'unified_contract_error',requestId}));event('browser_response_sent',{httpStatus:500,durationMs:totalDurationMs,documentCount:0,partial:false,errorCode:'INTERNAL_ERROR'});return c.json({requestId,error:{code:'INTERNAL_ERROR',message:'Unable to complete document search.'}},500);}
   putCapture({requestId,vin,recordedAt:new Date().toISOString(),sales:{httpStatus:sales.capturedHttpStatus,body:sales.capturedResponse??null,summary:sales.summary},service:{httpStatus:service.capturedHttpStatus,body:service.capturedResponse??null,summary:service.summary},unified:{httpStatus:200,body:validation.data},overlapMs,events:events.map(e=>({...e}))});
+  event('browser_response_sent',{httpStatus:200,durationMs:totalDurationMs,documentCount:documents.length,partial:decision.partial});
   return c.json(validation.data,200);
  });
  return app;
