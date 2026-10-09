@@ -25,3 +25,14 @@
 - Final review of System Design, OpenAPI, requirement traceability, public-file security and 5–10 minute assessment video remain necessary.
 
 **Boundaries:** Tests prove overlapping outgoing HTTP intervals, not parallel CPU instruction execution. Notebook and Quick Tunnel require active runtime. The app is synthetic document metadata aggregation, not an authenticated real-dealer service or PDF binary renderer.
+
+## Fresh public-clone execution observed 2026-10-09 10:44 ICT (non-Kaggle-UI run)
+
+- Runner: `nbclient` on the existing remote Kaggle-style Linux machine, **not** a newly imported notebook via Kaggle browser UI.
+- Public clone checkout: `58110f27e1f2d11ac968fad49586d01ceacb6dae`; `SOURCE_REPRODUCIBILITY=PASS`.
+- Executed **17/17 code steps**, no failed assertions. Run folder: `/kaggle/working/keyloop-reviewer-runs/keyloop-b310e418c2a5`.
+- Fresh request: `req_94eb3349-7174-4544-ad09-500202b03e78`; VIN `WVWZZZ1JZXW000001`, HTTP 200, **10 documents**, total **54.182 ms**, concurrent HTTP overlap **23.999 ms** (recomputed from private intervals).
+- `PARALLEL_EXECUTION=PASS`, `SQLITE_AUDIT=PASS`, `TRACE_CORRELATION=PASS`; artifacts `reviewer-evidence.json` and `parallel-timeline.png` exist in the run folder.
+- This execution set `KEYLOOP_ENABLE_TUNNEL=0` intentionally to leave the already-working public port 3000 tunnel untouched; notebook output `TUNNEL_STATUS=UNAVAILABLE` must **not** be described as a tunnel connectivity failure or a successful new tunnel test.
+- First public-clone attempt on ports 3400–3402 stopped with `PORT_BUSY`, correctly protecting earlier occupied processes. Retry on an independently free port range (39000–39002) passed. Safe same-kernel rerun ownership/cleanup is **still pending**.
+- Separate latest documentation changes were committed locally after the public clone's earlier SHA; a public-clone run of those documentation changes still requires publishing them first. This run does not demonstrate Kaggle UI Link import.
