@@ -17,27 +17,55 @@ code("""# 02 — Environment and explicit source settings
 import os, sys, json, time, re, socket, subprocess, pathlib, shutil, datetime, uuid, sqlite3
 from IPython.display import display, Markdown, Image
 WORK = pathlib.Path('/kaggle/working') if pathlib.Path('/kaggle/working').exists() else pathlib.Path('/tmp')
+PREVIOUS_NOTEBOOK_RUN=globals().get('RUN')
 RUN_ID = 'keyloop-' + uuid.uuid4().hex[:12]
 RUN = WORK / 'keyloop-reviewer-runs' / RUN_ID
 RUN.mkdir(parents=True,exist_ok=True)
 REPO_URL=os.environ.get('KEYLOOP_REPO_URL','https://github.com/dangkhoa2016/Keyloop-Scenario-D-Unified-Document-Viewer-pre-release.git').strip()
 PINNED_SHA=os.environ.get('KEYLOOP_GIT_SHA','').strip()
 LOCAL_SOURCE=os.environ.get('KEYLOOP_LOCAL_SOURCE','').strip() # local-only dev, not reviewer submission
-BASE_PORT=int(os.environ.get('KEYLOOP_NOTEBOOK_BASE_PORT','3000'))
+# Re-running Run All in the same kernel: stop only explicitly owned Popen
+# process groups whose recorded PID still matches; preserve unrelated services.
+import signal
+old_procs=globals().get('PROCS',{})
+old_run=globals().get('PREVIOUS_NOTEBOOK_RUN')
+if isinstance(old_procs,dict) and old_run:
+ for name,proc in old_procs.items():
+  marker=pathlib.Path(old_run)/(name+'.pid')
+  if isinstance(proc,subprocess.Popen) and proc.poll() is None and marker.is_file() and marker.read_text().strip()==str(proc.pid):
+   try:
+    if os.getpgid(proc.pid)==proc.pid:  # start_new_session=True, never a shared group
+     os.killpg(proc.pid,signal.SIGTERM)
+     proc.wait(timeout=5)
+     print('PREVIOUS_NOTEBOOK_PROCESS_STOPPED='+name)
+   except ProcessLookupError: pass
+   except subprocess.TimeoutExpired:
+    raise RuntimeError('OWNED_PROCESS_STILL_RUNNING: restart this kernel; unrelated processes were not touched')
+PORT_OVERRIDE=os.environ.get('KEYLOOP_NOTEBOOK_BASE_PORT','').strip()
 ENABLE_TUNNEL=os.environ.get('KEYLOOP_ENABLE_TUNNEL','1')=='1'
 NODE_ENV_FILE=pathlib.Path('/mnt/workspace/mise-node-env.sh')
 SOURCE=RUN/'source'
+def port_free(port):
+ with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as sock:
+  try: sock.bind(('127.0.0.1',port));return True
+  except OSError: return False
+def choose_port_group():
+ candidates=[int(PORT_OVERRIDE)] if PORT_OVERRIDE else [3000,*range(3100,50001,10)]
+ for base in candidates:
+  if 1024<=base<=65533 and all(port_free(p) for p in (base,base+1,base+2)):
+   return base
+ if PORT_OVERRIDE: raise RuntimeError('EXPLICIT_PORT_BUSY: chosen KEYLOOP_NOTEBOOK_BASE_PORT is unavailable; unset it for auto-selection')
+ raise RuntimeError('NO_FREE_PORT_GROUP: restart the Kaggle session; no unrelated processes were killed')
+BASE_PORT=choose_port_group()
 PORTS={'unified':BASE_PORT,'sales':BASE_PORT+1,'service':BASE_PORT+2}
 PROCS={};TESTS={};EVIDENCE={}
 def run(cmd,*,cwd=None,env=None,timeout=180,check=True):
  p=subprocess.run(cmd,cwd=str(cwd or SOURCE),env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=timeout)
  if check and p.returncode: raise RuntimeError(f"COMMAND_FAILED rc={p.returncode} command={cmd} output={p.stdout[-2500:]}")
  return p
-def port_free(port):
- with socket.socket() as sock:
-  return sock.connect_ex(('127.0.0.1',port))!=0
 print('RUN_ID=',RUN_ID,'UTC=',datetime.datetime.now(datetime.timezone.utc).isoformat())
-print('PYTHON=',sys.version.split()[0],'BASE_PORT=',BASE_PORT,'SOURCE_MODE=', 'LOCAL_DEV' if LOCAL_SOURCE else 'PINNED_PUBLIC_GIT')
+print('PORT_SELECTION='+('EXPLICIT' if PORT_OVERRIDE else 'AUTO'),'BASE_PORT='+str(BASE_PORT),'PORTS='+str(PORTS))
+print('PYTHON=',sys.version.split()[0],'SOURCE_MODE=', 'LOCAL_DEV' if LOCAL_SOURCE else 'PINNED_PUBLIC_GIT')
 print('KERNEL_CPU_ONLY=YES (no GPU required)')""")
 code("""# 03 — Acquire exact source commit. Never silently replace a missing public repo.
 if LOCAL_SOURCE:
@@ -128,7 +156,17 @@ assert 'Ran 7 tests' in out2.stdout and '\\nOK' in out2.stdout
 print('EVIDENCE_RENDERER_TESTS=PASS: 7')
 TESTS['UNIT_INTEGRATION']='PASS'""")
 code("""# 08 — Start Sales: owned PID and exact port, do not kill other services
-assert all(port_free(p) for p in PORTS.values()), 'PORT_BUSY: use a fresh runtime or set KEYLOOP_NOTEBOOK_BASE_PORT; existing unrelated services must not be killed'
+# Catch a rare collision after Step 01: reassign before any service starts.
+if not all(port_free(p) for p in PORTS.values()):
+ if PORT_OVERRIDE: raise RuntimeError('EXPLICIT_PORT_BUSY: configured ports are occupied; no services were killed')
+ previous=BASE_PORT
+ BASE_PORT=choose_port_group()
+ PORTS={'unified':BASE_PORT,'sales':BASE_PORT+1,'service':BASE_PORT+2}
+ ENV.update({'SALES_PORT':str(PORTS['sales']),'SERVICE_PORT':str(PORTS['service']),'UNIFIED_PORT':str(PORTS['unified']),
+             'SALES_BASE_URL':f"http://127.0.0.1:{PORTS['sales']}",
+             'SERVICE_BASE_URL':f"http://127.0.0.1:{PORTS['service']}"})
+ print('PORTS_RESELECTED='+str(previous)+'->'+str(BASE_PORT))
+assert all(port_free(p) for p in PORTS.values()), 'PORT_BUSY_AFTER_SELECTION: no unrelated processes were killed'
 def start_service(name):
  log=open(LOG/f'{name}-runtime.log','ab',buffering=0)
  cmd=['bash','-lc',prefix+f'node dist/apps/{name}-api/src/index.js']
@@ -229,6 +267,7 @@ if ENABLE_TUNNEL:
  tunnel_log=open(LOG/'cloudflared.log','ab',buffering=0)
  tunnel=subprocess.Popen([str(binary),'tunnel','--url',BASE],cwd=str(SOURCE),stdout=tunnel_log,stderr=subprocess.STDOUT,start_new_session=True)
  PROCS['cloudflared']=tunnel
+ (RUN/'cloudflared.pid').write_text(str(tunnel.pid))
  for _ in range(45):
   text=(LOG/'cloudflared.log').read_text(errors='replace')
   match=re.search(r'https://[a-z0-9-]+\\.trycloudflare\\.com',text)
@@ -272,13 +311,13 @@ print('='*60)""")
 assert len(cells)==18,len(cells)
 # Add self-contained reviewer guidance before every executable step.
 guides = [
-('Start here: Kaggle setup','Sign in to Kaggle, create New Notebook, then File → Import Notebook → Link and paste the full GitHub notebook file URL shown above (not the repository homepage). Alternatively use the GitHub tab to select the repository and file; file download/upload is the fallback. Choose CPU and Internet ON. Click Run All. No credentials, GitHub URL, SHA or manual configuration are required. The next cell creates a unique run directory. Expected: RUN_ID and PINNED_PUBLIC_GIT.'),
+('Start here: Kaggle setup','Sign in to Kaggle, create New Notebook, then File → Import Notebook → Link and paste the full GitHub notebook file URL shown above (not the repository homepage). Alternatively use the GitHub tab to select the repository and file; file download/upload is the fallback. Choose CPU and Internet ON. Click Run All. No credentials, GitHub URL, SHA or manual configuration are required. The next cell creates a unique run directory and auto-selects free local service ports. Expected: RUN_ID, PORT_SELECTION=AUTO and PINNED_PUBLIC_GIT.'),
 ('Fetch public source','The notebook clones the public GitHub repository, resolves main to an immutable SHA, and checks it out. The printed SHA identifies the tested revision. Expected: SOURCE_REPRODUCIBILITY=PASS. If cloning fails, check Kaggle Internet access.'),
 ('Install Node.js dependencies','This Python notebook runs a Node.js/TypeScript backend. The cell uses Node.js 24, installing a verified official binary if needed, and runs npm ci using the lockfile. Expected: Node v24 and NPM_CI=PASS; your computer needs no local setup.'),
 ('Validate the source code','Typecheck checks TypeScript correctness, lint identifies common bugs, and build compiles the backend. Expected: TYPECHECK=PASS, LINT=PASS and BUILD=PASS. Any failure stops execution rather than falsely reporting success.'),
 ('Build three isolated SQLite databases','Sales, Service and Unified Audit each have separate SQLite storage. This step creates a fresh run-specific data directory and deterministically seeds synthetic sample vehicles. Expected: migration passes and DATASET_VERIFICATION=PASS.'),
 ('Run the automated test suite','Node tests cover schemas and real HTTP integration, while Python tests validate evidence reconstruction. Expected: 26 Node tests and 7 Python evidence tests. These do not replace browser testing in Step 16.'),
-('Launch the Sales source API','Starts an independent loopback-only HTTP service with sales.sqlite. Expected: SALES_READY=PASS and a process ID. PORT_BUSY means another process owns the port; restart the Kaggle session instead of killing unrelated processes.'),
+('Launch the Sales source API','Starts an independent loopback-only HTTP service with sales.sqlite. The notebook auto-selects an available group of three local ports if defaults are busy, and rechecks before startup. Expected: SALES_READY=PASS and a process ID. No unrelated processes are killed.'),
 ('Launch the Service source API','Starts a second independent loopback-only HTTP service using service.sqlite and a different JSON response format. Expected: SERVICE_READY=PASS. Unified must translate both formats.'),
 ('Launch Unified API and frontend','Starts the reviewer-facing server. It requests Sales and Service concurrently over HTTP, consolidates documents and writes audit records. Expected: UNIFIED_READY=PASS. A public browser URL will appear in Step 16.'),
 ('Confirm API readiness','Makes real HTTP requests to the three readiness endpoints and checks process health. Expected: SALES_API_READY, SERVICE_API_READY and UNIFIED_API_READY all PASS.'),
