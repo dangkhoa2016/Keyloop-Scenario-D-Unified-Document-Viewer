@@ -1,15 +1,13 @@
-# Scenario D Requirements Traceability — through Unified aggregation
+# Scenario D Requirements Traceability — through Reviewer UI
 
-| Requirement | Implemented | Evidence |
+| Requirement | Implementation | Evidence status |
 |---|---|---|
-| D-01 VIN input | Server-side VIN validation, demo VIN endpoint; UI pending | Invalid input test PASS, UI PENDING |
-| D-02 parallel HTTP | Unified concurrent calls to independent Sales/Service listeners | Monotonic overlap integration PASS |
-| D-03 consolidated list | Single canonical documents array, date-descending | Mixed-source list integration PASS; browser UI pending |
-| D-04 source attribution | Namespaced IDs and source for every normalized document | Integration PASS; UI pending |
-| BE-01 REST API | Unified GET vehicle documents plus health/demo routes | Real HTTP integration PASS |
-| BE-02 persistent DB | Three SQLite files, request_audit insert and lookup | Audit persistence test PASS |
-| SD-01–SD-04 | System Design draft; dedicated AI design section | Draft, reviewer signoff pending |
-| AI-01 | README AI narrative remains draft; real verification corrections documented | PARTIAL |
-| VID-01 | 5–10 minute video | PENDING |
-
-Reviewer UI: UI and structured trace presentation; Reviewer evidence: public pinned Git, Kaggle and video.
+| D-01 single VIN interface | Public UI form + demo VIN selectors | HTML route smoke PASS, browser QA pending |
+| D-02 parallel source HTTP | Unified real HTTP request overlap | Unified aggregation integration PASS |
+| D-03 one consolidated view | Single DOM list with default All filter | Source-code HTML/JS smoke + canonical API PASS; browser QA pending |
+| D-04 per-document source | Source text badges on every document | Canonical API tests PASS; browser QA pending |
+| BE-01 REST API | Unified/Sales/Service routes | 16 real HTTP integration tests PASS |
+| BE-02 persistent DB | Three SQLite files and audit SQL lookup | Live request / audit PASS |
+| SD-01–SD-04 | System Design draft, GenAI section | Needs final independent review |
+| AI-01 | README narrative + real correction evidence | Source APIs/Unified aggregation evidence present; review pending |
+| VID-01 | Video 5–10 min | Pending Reviewer evidence |
